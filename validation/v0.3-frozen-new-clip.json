@@ -1,0 +1,68 @@
+{
+  "video": "%USERPROFILE%\\AppData\\Local\\Zeren\\profiles\\local\\uploads\\bcfdaeba-Battle_Royale_Build_Unranked_Duo_-_38_Left_1_.mp4",
+  "video_sha256": "7a0a3993a23da0184dfa8e11a7509a2fe9d53af7d5e786d9f6835d961eb1a2ee",
+  "config_sha256": "2b28e3a5711fa4b0400e476c79f8a804d1e79c6fa42728586fe15f6cf14d1428",
+  "frames_analyzed": 92,
+  "events": [
+    {
+      "id": "aff1fdff-3565-4ac9-9829-cac80622eaf2",
+      "time": 2.063,
+      "status": "review",
+      "chest_type": "Unknown",
+      "confidence": 0.65,
+      "reason": "Opening sequence needs review: chest identity or interaction completion uncertain",
+      "target": 3
+    },
+    {
+      "id": "f3f148e1-2338-4a89-a323-fa7f5e67b7be",
+      "time": 8.334,
+      "status": "review",
+      "chest_type": "Unknown",
+      "confidence": 0.65,
+      "reason": "Opening sequence needs review: chest identity or interaction completion uncertain",
+      "target": 11
+    }
+  ],
+  "real_footage": true,
+  "release_gate": false,
+  "note": "Candidate confirmation is not an accuracy claim. Compare against human labels.",
+  "ground_truth": 2,
+  "timestamp_tolerance": 0.5,
+  "confirmed_candidates": 0,
+  "matched": 0,
+  "missed": 2,
+  "false": 0,
+  "duplicates": 0,
+  "missed_timestamps": [
+    2.05,
+    8.25
+  ],
+  "false_timestamps": [],
+  "duplicate_timestamps": [],
+  "pairs": [],
+  "review_candidates": 2,
+  "candidate_metrics": {
+    "ground_truth": 2,
+    "matched": 2,
+    "missed": 0,
+    "false": 0,
+    "duplicates": 0,
+    "pairs": [
+      {
+        "truth": 2.05,
+        "detected": 2.063
+      },
+      {
+        "truth": 8.25,
+        "detected": 8.334
+      }
+    ]
+  },
+  "model_training_overlap": false,
+  "elapsed_seconds": 9.900299899978563,
+  "processing_fps": 9.292647791426925,
+  "initialization_seconds": 1.9431248999899253,
+  "sample_processing_seconds": 5.827800800150726,
+  "median_frame_processing_ms": 53.930349997244775,
+  "p95_frame_processing_ms": 123.14719997812063
+}

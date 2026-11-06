@@ -1,0 +1,36 @@
+{
+  "architecture": "TorchVision SSDLite MobileNetV3 Large, raw heads",
+  "input_size": 512,
+  "classes": [
+    "background",
+    "closed",
+    "opened"
+  ],
+  "box_coder_weights": [
+    10.0,
+    10.0,
+    5.0,
+    5.0
+  ],
+  "sha256": "a65b432a618b289b88c071b78cf9375311242672f0c2e416cfa8511d7b6d05cd",
+  "license": "BSD-3-Clause (TorchVision); see MODEL-NOTICE.txt",
+  "training": {
+    "seed": 19,
+    "steps": 600,
+    "batch": 4,
+    "training_annotations": "validation/chest-training-annotations.json",
+    "note": "Includes frames from supplied recording. A subsequent pass on that video is a regression, not a held-out accuracy result.",
+    "video_sha256": [
+      "9887b54cb005a0c3ed7d293cccccaca971b43af0baf85c8978b075404bac1c6e"
+    ]
+  },
+  "independent_gameplay_validation": false,
+  "limitations": "Small user-supplied training set of ornate gold chests. Other chest appearances, spectators and negative gameplay remain unvalidated. Automatic candidates require review.",
+  "opencv_export_max_errors": [
+    0.00023651123046875,
+    5.1975250244140625e-05
+  ],
+  "training_video_sha256": [
+    "9887b54cb005a0c3ed7d293cccccaca971b43af0baf85c8978b075404bac1c6e"
+  ]
+}

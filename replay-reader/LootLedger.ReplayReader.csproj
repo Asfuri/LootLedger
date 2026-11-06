@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The assembly name must contain "ReplayReader": the vendored parser only scans such assemblies for export classes. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>LootLedger.ReplayReader</AssemblyName>
+    <RootNamespace>LootLedger.ReplayReader</RootNamespace>
+    <Version>0.4.0</Version>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- Reflection-heavy parser: keep the full framework (no trimming). -->
+    <PublishTrimmed>false</PublishTrimmed>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="vendor/**;tests/**" />
+    <ProjectReference Include="vendor\FortniteReplayDecompressor\src\FortniteReplayReader\FortniteReplayReader.csproj" />
+  </ItemGroup>
+</Project>

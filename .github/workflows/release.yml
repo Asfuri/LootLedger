@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Build (tests run inside build.ps1)
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          ./build.ps1
+
+      - name: Smoke-test the exe
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist-v0.4\LootLedger.exe -ArgumentList '--smoke-test', "$PWD\smoke" -Wait -PassThru
+          Get-Content smoke\smoke-report.json
+          if ($p.ExitCode -ne 0) { throw "Smoke test failed ($($p.ExitCode))" }
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          Copy-Item dist-v0.4\LootLedger.exe LootLedger.exe
+          gh release create $env:GITHUB_REF_NAME LootLedger.exe --title "LootLedger $env:GITHUB_REF_NAME" --notes-file .github/release-notes.md
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        with:
+          name: LootLedger
+          path: dist-v0.4/LootLedger.exe

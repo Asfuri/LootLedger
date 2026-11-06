@@ -1,0 +1,89 @@
+{
+  "date": "2026-11-06",
+  "reader": "LootLedger.ReplayReader 0.4 (FortniteReplayDecompressor 76f74c1 + patch)",
+  "replays": 100,
+  "parse_errors": 0,
+  "fortnite_builds": {
+    "++Fortnite+Release-43.00": 100
+  },
+  "playlists": {
+    "Playlist_DefaultDuo": 33,
+    "Playlist_DefaultSquad": 24,
+    "playlist_trios": 18,
+    "Playlist_NoBuildBR_Squad": 8,
+    "Playlist_NoBuildBR_Trio": 8,
+    "Playlist_NoBuildBR_Duo": 5,
+    "Playlist_NoBuildBR_Solo": 1,
+    "Playlist_FigmentSquad": 1,
+    "Playlist_HabaneroDuo": 1,
+    "Playlist_NoBuildBR_Habanero_Duo": 1
+  },
+  "searches_by": {
+    "other": 3700,
+    "me": 2494,
+    "team": 1475,
+    "unknown": 2560
+  },
+  "your_events_by_type": {
+    "Ammo box (not a chest) / broken": 225,
+    "Ammo box (not a chest) / opened": 56,
+    "Buried chest / opened": 48,
+    "Chest / broken": 415,
+    "Chest / opened": 1354,
+    "Fishing barrel (not a chest) / broken": 1,
+    "Food box (not a chest) / broken": 7,
+    "Food box (not a chest) / opened": 3,
+    "Rare chest / broken": 174,
+    "Rare chest / opened": 97,
+    "Relic chest / broken": 41,
+    "Relic chest / opened": 71,
+    "Sprite poster chest / opened": 2
+  },
+  "clips": [
+    {
+      "labels": "reference-labels.json",
+      "replay": "UnsavedReplay-2026.11.05-19.53.09.replay",
+      "clip_title": "40 Left",
+      "clip_uploaded": "11/05 20:01",
+      "clip_start_in_replay_s": 217.43,
+      "labelled_openings_s": [
+        1.6,
+        10.6,
+        11.8,
+        17.4
+      ],
+      "replay_openings_in_clip_s": [
+        1.6,
+        10.73,
+        11.8,
+        17.39
+      ],
+      "matched": 4,
+      "missed": 0,
+      "extra_or_duplicate": 0
+    },
+    {
+      "labels": "new-clip-labels.json",
+      "replay": "UnsavedReplay-2026.11.06-01.58.17.replay",
+      "clip_title": "38 Left",
+      "clip_uploaded": "11/06 02:11",
+      "clip_start_in_replay_s": 211.72,
+      "labelled_openings_s": [
+        2.05,
+        8.25
+      ],
+      "replay_openings_in_clip_s": [
+        2.05,
+        8.29
+      ],
+      "matched": 2,
+      "missed": 0,
+      "extra_or_duplicate": 0
+    }
+  ],
+  "notes": [
+    "Clip labels were made frame by frame for the screen detector (v0.2/v0.3), before replay reading existed.",
+    "Each clip was matched to its replay by upload time, then confirmed by the players-left count from the replay's elimination events (clip 1: about 42 to 39 left; clip 2: about 38 to 37 left).",
+    "'unknown' searches are containers first recorded already searched, with no searcher reference."
+  ]
+}

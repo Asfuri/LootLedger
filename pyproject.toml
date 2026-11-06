@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lootledger"
+version = "0.4.0"
+description = "Fortnite chest tracker for Windows that reads your local replay files"
+requires-python = ">=3.11,<3.15"
+dependencies = [
+  "PySide6-Essentials>=6.9,<7", "opencv-python-headless>=4.11,<5", "numpy>=2.2,<3",
+  "mss>=10,<11",
+  "onnxruntime-directml>=1.24,<2; sys_platform == 'win32'",
+  "onnxruntime>=1.24,<2; sys_platform != 'win32'",
+  "winrt-runtime>=3,<5; sys_platform == 'win32'",
+  "winrt-Windows.Foundation>=3,<5; sys_platform == 'win32'",
+  "winrt-Windows.Foundation.Collections>=3,<5; sys_platform == 'win32'",
+  "winrt-Windows.Globalization>=3,<5; sys_platform == 'win32'",
+  "winrt-Windows.Graphics.Imaging>=3,<5; sys_platform == 'win32'",
+  "winrt-Windows.Media.Ocr>=3,<5; sys_platform == 'win32'",
+  "winrt-Windows.Storage.Streams>=3,<5; sys_platform == 'win32'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "pyinstaller>=6.16,<7"]
+
+[project.scripts]
+lootledger = "lootledger.app:main"
+lootledger-analyze = "lootledger.analyze:main"
+
+[tool.setuptools.packages.find]
+include = ["lootledger*"]
+
+[tool.setuptools.package-data]
+lootledger = ["assets/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

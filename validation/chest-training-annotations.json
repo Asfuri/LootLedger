@@ -1,0 +1,559 @@
+{
+  "video": "af0ce4ac-Battle_Royale_Build_Unranked_Duo_-_40_Left.mp4",
+  "independent_validation": false,
+  "note": "Small training set from four ornate gold chests; broader chest types and negatives unverified.",
+  "crops": [
+    {
+      "file": "closed-00.png",
+      "state": "closed",
+      "time": 0.8,
+      "box": [
+        908,
+        473,
+        1114,
+        722
+      ]
+    },
+    {
+      "file": "closed-01.png",
+      "state": "closed",
+      "time": 1.0,
+      "box": [
+        914,
+        467,
+        1122,
+        718
+      ]
+    },
+    {
+      "file": "closed-02.png",
+      "state": "closed",
+      "time": 1.3,
+      "box": [
+        920,
+        467,
+        1122,
+        716
+      ]
+    },
+    {
+      "file": "closed-03.png",
+      "state": "closed",
+      "time": 1.45,
+      "box": [
+        918,
+        467,
+        1122,
+        716
+      ]
+    },
+    {
+      "file": "opened-04.png",
+      "state": "opened",
+      "time": 1.9,
+      "box": [
+        950,
+        500,
+        1195,
+        778
+      ]
+    },
+    {
+      "file": "opened-05.png",
+      "state": "opened",
+      "time": 2.0,
+      "box": [
+        950,
+        530,
+        1206,
+        838
+      ]
+    },
+    {
+      "file": "closed-06.png",
+      "state": "closed",
+      "time": 9.8,
+      "box": [
+        790,
+        458,
+        1016,
+        806
+      ]
+    },
+    {
+      "file": "closed-07.png",
+      "state": "closed",
+      "time": 10.0,
+      "box": [
+        810,
+        472,
+        1004,
+        796
+      ]
+    },
+    {
+      "file": "closed-08.png",
+      "state": "closed",
+      "time": 10.25,
+      "box": [
+        804,
+        468,
+        1028,
+        795
+      ]
+    },
+    {
+      "file": "closed-09.png",
+      "state": "closed",
+      "time": 10.45,
+      "box": [
+        796,
+        468,
+        1030,
+        798
+      ]
+    },
+    {
+      "file": "closed-10.png",
+      "state": "closed",
+      "time": 11.0,
+      "box": [
+        815,
+        444,
+        1050,
+        732
+      ]
+    },
+    {
+      "file": "closed-11.png",
+      "state": "closed",
+      "time": 11.25,
+      "box": [
+        790,
+        440,
+        1050,
+        758
+      ]
+    },
+    {
+      "file": "closed-12.png",
+      "state": "closed",
+      "time": 11.5,
+      "box": [
+        790,
+        440,
+        1050,
+        728
+      ]
+    },
+    {
+      "file": "closed-13.png",
+      "state": "closed",
+      "time": 11.65,
+      "box": [
+        790,
+        440,
+        1050,
+        726
+      ]
+    },
+    {
+      "file": "opened-14.png",
+      "state": "opened",
+      "time": 12.2,
+      "box": [
+        740,
+        457,
+        1090,
+        741
+      ]
+    },
+    {
+      "file": "closed-15.png",
+      "state": "closed",
+      "time": 16.6,
+      "box": [
+        740,
+        554,
+        1060,
+        840
+      ]
+    },
+    {
+      "file": "closed-16.png",
+      "state": "closed",
+      "time": 16.9,
+      "box": [
+        740,
+        550,
+        1060,
+        836
+      ]
+    },
+    {
+      "file": "closed-17.png",
+      "state": "closed",
+      "time": 17.15,
+      "box": [
+        770,
+        550,
+        1060,
+        836
+      ]
+    },
+    {
+      "file": "setup-closed.png",
+      "state": "closed",
+      "source": "User setup crop"
+    },
+    {
+      "file": "setup-opened.png",
+      "state": "opened",
+      "source": "User setup crop"
+    }
+  ],
+  "backgrounds": [
+    "background-0.jpg",
+    "background-1.jpg",
+    "background-2.jpg",
+    "background-3.jpg",
+    "background-4.jpg",
+    "background-5.jpg",
+    "background-6.jpg",
+    "background-7.jpg",
+    "background-8.jpg"
+  ],
+  "frames": [
+    {
+      "file": "scene-00.jpg",
+      "state": "closed",
+      "boxes": [
+        [
+          908,
+          473,
+          1114,
+          722
+        ]
+      ],
+      "labels": [
+        1
+      ]
+    },
+    {
+      "file": "scene-01.jpg",
+      "state": "closed",
+      "boxes": [
+        [
+          914,
+          467,
+          1122,
+          718
+        ]
+      ],
+      "labels": [
+        1
+      ]
+    },
+    {
+      "file": "scene-02.jpg",
+      "state": "closed",
+      "boxes": [
+        [
+          920,
+          467,
+          1122,
+          716
+        ]
+      ],
+      "labels": [
+        1
+      ]
+    },
+    {
+      "file": "scene-03.jpg",
+      "state": "closed",
+      "boxes": [
+        [
+          918,
+          467,
+          1122,
+          716
+        ]
+      ],
+      "labels": [
+        1
+      ]
+    },
+    {
+      "file": "scene-04.jpg",
+      "state": "opened",
+      "boxes": [
+        [
+          950,
+          500,
+          1195,
+          778
+        ]
+      ],
+      "labels": [
+        2
+      ]
+    },
+    {
+      "file": "scene-05.jpg",
+      "state": "opened",
+      "boxes": [
+        [
+          950,
+          530,
+          1206,
+          838
+        ]
+      ],
+      "labels": [
+        2
+      ]
+    },
+    {
+      "file": "scene-06.jpg",
+      "state": "closed",
+      "boxes": [
+        [
+          790,
+          458,
+          1016,
+          806
+        ],
+        [
+          0,
+          959,
+          149,
+          1080
+        ]
+      ],
+      "labels": [
+        1,
+        1
+      ]
+    },
+    {
+      "file": "scene-07.jpg",
+      "state": "closed",
+      "boxes": [
+        [
+          810,
+          472,
+          1004,
+          796
+        ],
+        [
+          0,
+          979,
+          139,
+          1080
+        ]
+      ],
+      "labels": [
+        1,
+        1
+      ]
+    },
+    {
+      "file": "scene-08.jpg",
+      "state": "closed",
+      "boxes": [
+        [
+          804,
+          468,
+          1028,
+          795
+        ],
+        [
+          0,
+          975,
+          142,
+          1080
+        ]
+      ],
+      "labels": [
+        1,
+        1
+      ]
+    },
+    {
+      "file": "scene-09.jpg",
+      "state": "closed",
+      "boxes": [
+        [
+          796,
+          468,
+          1030,
+          798
+        ],
+        [
+          0,
+          795,
+          177,
+          1080
+        ]
+      ],
+      "labels": [
+        1,
+        1
+      ]
+    },
+    {
+      "file": "scene-10.jpg",
+      "state": "closed",
+      "boxes": [
+        [
+          815,
+          444,
+          1050,
+          732
+        ],
+        [
+          1215,
+          897,
+          1523,
+          1080
+        ]
+      ],
+      "labels": [
+        1,
+        2
+      ]
+    },
+    {
+      "file": "scene-11.jpg",
+      "state": "closed",
+      "boxes": [
+        [
+          790,
+          440,
+          1050,
+          758
+        ],
+        [
+          1221,
+          877,
+          1553,
+          1080
+        ]
+      ],
+      "labels": [
+        1,
+        2
+      ]
+    },
+    {
+      "file": "scene-12.jpg",
+      "state": "closed",
+      "boxes": [
+        [
+          790,
+          440,
+          1050,
+          728
+        ],
+        [
+          1213,
+          861,
+          1551,
+          1080
+        ]
+      ],
+      "labels": [
+        1,
+        2
+      ]
+    },
+    {
+      "file": "scene-13.jpg",
+      "state": "closed",
+      "boxes": [
+        [
+          790,
+          440,
+          1050,
+          726
+        ],
+        [
+          1211,
+          857,
+          1579,
+          1080
+        ]
+      ],
+      "labels": [
+        1,
+        2
+      ]
+    },
+    {
+      "file": "scene-14.jpg",
+      "state": "opened",
+      "boxes": [
+        [
+          740,
+          457,
+          1090,
+          741
+        ]
+      ],
+      "labels": [
+        2
+      ]
+    },
+    {
+      "file": "scene-15.jpg",
+      "state": "closed",
+      "boxes": [
+        [
+          740,
+          554,
+          1060,
+          840
+        ]
+      ],
+      "labels": [
+        1
+      ]
+    },
+    {
+      "file": "scene-16.jpg",
+      "state": "closed",
+      "boxes": [
+        [
+          740,
+          550,
+          1060,
+          836
+        ]
+      ],
+      "labels": [
+        1
+      ]
+    },
+    {
+      "file": "scene-17.jpg",
+      "state": "closed",
+      "boxes": [
+        [
+          770,
+          550,
+          1060,
+          836
+        ]
+      ],
+      "labels": [
+        1
+      ]
+    }
+  ],
+  "scene_backgrounds": [
+    "player-background-3.jpg",
+    "player-background-6.jpg"
+  ],
+  "video_sha256": "9887b54cb005a0c3ed7d293cccccaca971b43af0baf85c8978b075404bac1c6e"
+}

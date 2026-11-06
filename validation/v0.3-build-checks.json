@@ -1,0 +1,117 @@
+{
+  "version": "0.3.0",
+  "utc": "2026-11-06T02:37:52.463101+00:00",
+  "build_complete": true,
+  "source_tests": {
+    "passed": 82,
+    "failed": 0,
+    "duration_seconds": 18.75
+  },
+  "frozen_smoke": {
+    "platform": "Windows-11-10.0.26200-SP0",
+    "python": "3.14.2 (tags/v3.14.2:df79316, Dec  5 2025, 17:18:21) [MSC v.1944 64 bit (AMD64)]",
+    "frozen": true,
+    "real_gameplay_tested": false,
+    "checks": {
+      "dashboard_and_counters": "passed",
+      "screen_setup": "passed (screen/language only; no chest boxes; advanced controls hidden)",
+      "native_windows_ocr": "passed (generated text)",
+      "bundled_chest_model": "passed (loaded; no chest on blank frame)",
+      "display_capture": [
+        1920,
+        1080
+      ]
+    },
+    "passed": true
+  },
+  "new_clip_candidates": {
+    "ground_truth": 2,
+    "matched": 2,
+    "missed": 0,
+    "false": 0,
+    "duplicates": 0,
+    "pairs": [
+      {
+        "truth": 2.05,
+        "detected": 2.063
+      },
+      {
+        "truth": 8.25,
+        "detected": 8.334
+      }
+    ]
+  },
+  "original_clip_candidates": {
+    "ground_truth": 4,
+    "matched": 4,
+    "missed": 0,
+    "false": 0,
+    "duplicates": 0,
+    "pairs": [
+      {
+        "truth": 1.6,
+        "detected": 1.601
+      },
+      {
+        "truth": 10.6,
+        "detected": 10.698
+      },
+      {
+        "truth": 11.8,
+        "detected": 11.802000000000001
+      },
+      {
+        "truth": 17.4,
+        "detected": 17.373
+      }
+    ]
+  },
+  "frozen_timed_replay": {
+    "video": "%USERPROFILE%\\AppData\\Local\\Zeren\\profiles\\local\\uploads\\bcfdaeba-Battle_Royale_Build_Unranked_Duo_-_38_Left_1_.mp4",
+    "capture_size": [
+      2560,
+      1440
+    ],
+    "frozen": true,
+    "config_sha256": "2b28e3a5711fa4b0400e476c79f8a804d1e79c6fa42728586fe15f6cf14d1428",
+    "duration": 10.147351973684211,
+    "frames_processed": 90,
+    "effective_sampling_hz": 8.869308981634111,
+    "median_processing_ms": 72.07359999301843,
+    "p95_processing_ms": 147.4406000052113,
+    "events": [
+      {
+        "id": "42678fce-09a3-4397-9868-c3b934ec6685",
+        "time": 8.305752800020855,
+        "status": "review",
+        "chest_type": "Unknown",
+        "confidence": 0.6,
+        "reason": "Closed chest + near-complete search + fresh CHEST XP; opened state not established; unvalidated profile"
+      },
+      {
+        "id": "956f7b5c-d23a-4a5b-92e1-e01aa23890dc",
+        "time": 2.0647986000112724,
+        "status": "review",
+        "chest_type": "Unknown",
+        "confidence": 0.65,
+        "reason": "Opening sequence needs review: chest identity or interaction completion uncertain; unvalidated profile"
+      }
+    ],
+    "confirmed_total": 0,
+    "candidate_metrics": {
+      "matched": 2,
+      "missed": 0,
+      "false": 0,
+      "duplicates": 0
+    },
+    "errors": [],
+    "actual_game_capture_tested": false,
+    "release_gate": false,
+    "note": "Timed worker, real-time lossless replay, temporary SQLite ledger. Development clip; not held-out accuracy."
+  },
+  "model_sha256": "a65b432a618b289b88c071b78cf9375311242672f0c2e416cfa8511d7b6d05cd",
+  "executable_sha256": "e28f60fee2ebc0c4007097745545f39062efc2ba8a0bb99f1c60789f03d3ddcb",
+  "actual_live_opening_accuracy_tested": false,
+  "model_retrained_on_new_clip": false,
+  "release_gate": false
+}

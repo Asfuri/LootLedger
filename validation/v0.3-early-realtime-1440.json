@@ -1,0 +1,34 @@
+{
+  "video": "%USERPROFILE%\\AppData\\Local\\Zeren\\profiles\\local\\uploads\\bcfdaeba-Battle_Royale_Build_Unranked_Duo_-_38_Left_1_.mp4",
+  "capture_size": [
+    2560,
+    1440
+  ],
+  "duration": 10.147351973684211,
+  "frames_processed": 61,
+  "effective_sampling_hz": 6.011420531996453,
+  "median_processing_ms": 148.33290001843125,
+  "p95_processing_ms": 250.07070001447573,
+  "events": [
+    {
+      "id": "9b9f7a6b-be7c-4768-b2ba-7cb89432a5ae",
+      "time": 8.377726700011408,
+      "status": "review",
+      "chest_type": "Unknown",
+      "confidence": 0.6,
+      "reason": "Closed chest + near-complete search + fresh CHEST XP; opened state not established; unvalidated profile",
+      "target": 11
+    }
+  ],
+  "confirmed_total": 0,
+  "candidate_metrics": {
+    "matched": 1,
+    "missed": 1,
+    "false": 0,
+    "duplicates": 0
+  },
+  "errors": [],
+  "actual_game_capture_tested": false,
+  "release_gate": false,
+  "note": "Source worker, real-time lossless replay, temporary SQLite ledger. Development clip; not held-out accuracy."
+}

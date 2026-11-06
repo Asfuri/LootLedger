@@ -1,0 +1,73 @@
+﻿# LootLedger 0.4
+
+A Windows desktop chest tracker for Fortnite. It reads the **replay files Fortnite already saves on your PC** and counts every chest *you* opened: per match, per day, per type, all time. Your teammates' chests are shown separately.
+
+No account, no uploads, no game-memory reading, no injection, no network interception, no gameplay automation. The app only reads `.replay` files after Fortnite writes them.
+
+## Why replays instead of screen capture
+
+Versions 0.1â€“0.3 tried to recognize chests on screen. That failed in real play: chests appear from every angle and distance, and the detector found 0 of 4 openings in the first clip. Fortnite replays record each chest's state directly. When someone searches a chest, the replay stores *who* searched it (`SearchingPawn`) and *when* the search completed (`bAlreadySearched`). The replay also identifies the recording player, so each opening can be attributed exactly. See [VALIDATION.md](VALIDATION.md).
+
+## Use it
+
+1. In Fortnite: **Settings â†’ Game â†’ Replays â†’ Record Replays: On**.
+2. Download **LootLedger.exe** from [Releases](https://github.com/femboypuppy/LootLedger/releases/latest) and run it (single file, no install; SmartScreen may warn because it is unsigned).
+3. Play. Each finished match is read automatically, usually within 20 seconds of returning to the lobby. The first launch reads the replays already on your PC (about 0.4 s each).
+
+The **current match** card reads the replay Fortnite is still writing. It updates whenever Fortnite writes more of that file. This in-progress reading has not yet been tested during a live match (see Validation).
+
+Fortnite only keeps your most recent replays (100 here) and deletes older ones. LootLedger keeps every count once it has read a replay, so open it at least once every few dozen matches.
+
+### What counts
+
+| Shown as | Fortnite classes (from the replay) | In chest total |
+|---|---|---|
+| Chest | `Tiered_Chest_Athena_C`, `AlwaysSpawn_NormalChest_C` | yes |
+| Rare chest | `AlwaysSpawn_RareChest_C` | yes |
+| Relic chest | `B_TieredChest_Relics_C`, `â€¦_Relics_Variant1_C` | yes |
+| Buried chest | `B_Athena_BuriedChest_Chest_C`, `â€¦_RelicFinder_C` | yes |
+| Sprite poster chest | `B_SpritePosters_Booty_Chest_C` | yes |
+| Other chest | any other class with "Chest" in its name | yes |
+| Ammo box / Food box / Fishing barrel | `Tiered_Ammo_Athena_C`, â€¦ | no, listed separately |
+
+**Broken open** means the chest was destroyed by your damage before anyone searched it, and its loot spilled. Several containers in a vault can break open at once. Broken-open chests count by default (shown as a separate line). You can turn that off in **Settings**.
+
+**Teammates (seen)** only includes chests your replay recorded. A teammate far from you may open chests your game never received.
+
+### Corrections
+
+The **Openings** page lists every counted chest. **Remove entry**, **Restore entry**, **Correct entryâ€¦** (type/count), **Manual +1** (adds to the latest match) and **Undo last** are recorded in an audit trail. Reading replays again never duplicates entries or undoes your edits. Optional hotkeys can be set in Settings (default Ctrl+Alt+F8 = +1, Ctrl+Alt+F9 = undo).
+
+### Data
+
+The ledger is `%LOCALAPPDATA%\LootLedger\ledger.sqlite` (SQLite, saved immediately). Settings include Export JSON/CSV, Create backup, and Restore backup. Restore validates the file and saves a safety copy first; backups from v0.3 also restore. Your earlier v0.3 data stays in the same ledger.
+
+## Build from source
+
+Requirements: Windows 10/11 x64, Python 3.11â€“3.14 x64. The build script installs a private .NET 10 SDK into `.dotnet\` when none is found.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1
+```
+
+The script installs locked Python dependencies and publishes the replay reader as a self-contained single file (no .NET install needed to *run* it). It then runs the tests and packages a single `dist-v0.4\LootLedger.exe` with PyInstaller.
+
+Releases are built by GitHub Actions (`.github/workflows/release.yml`): pushing a `v*` tag runs `build.ps1` on `windows-latest`, smoke-tests the exe and attaches it to a GitHub release. Running the workflow manually uploads the exe as a build artifact instead.
+
+Development:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -q                       # Includes real-replay checks when the replays exist
+.\.venv\Scripts\python.exe run.py                             # Run from source
+.\.venv\Scripts\python.exe run.py --smoke-test local-data\smoke
+.\dist-v0.4\LootLedger.exe --smoke-test local-data\smoke-exe
+.\replay-reader\publish\LootLedger.ReplayReader.exe [--trace] <file.replay>   # Raw JSON for one replay
+```
+
+### Layout
+
+- `replay-reader/`: C# helper. `ChestReplayReader.cs` tracks each container's search/break episodes and resolves the searching pawn to you, a teammate or someone else. `vendor/FortniteReplayDecompressor` is the MIT replay parser, with a small documented patch (`VENDORED.md`).
+- `lootledger/replay_reader.py`: runs the helper, classifies chest types, and imports new replays.
+- `lootledger/store.py`: SQLite ledger with idempotent replay imports, corrections, stats, and backups.
+- `lootledger/app.py`, `widgets.py`: the desktop UI.
+- The retired screen detector (`screenvision.py`, `vision.py`, `detector.py`, `worker.py`, `analyze.py`, `replay.py`) remains for reference and its tests. The desktop app no longer uses it.

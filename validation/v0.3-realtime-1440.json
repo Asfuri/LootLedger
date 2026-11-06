@@ -1,0 +1,43 @@
+{
+  "video": "%USERPROFILE%\\AppData\\Local\\Zeren\\profiles\\local\\uploads\\bcfdaeba-Battle_Royale_Build_Unranked_Duo_-_38_Left_1_.mp4",
+  "capture_size": [
+    2560,
+    1440
+  ],
+  "frozen": false,
+  "config_sha256": "11d4a299304ece9c6d28895733f89954b43bcb3b39bff516490ac3d3bd3b1976",
+  "duration": 10.147351973684211,
+  "frames_processed": 67,
+  "effective_sampling_hz": 6.602707797438727,
+  "median_processing_ms": 126.38120001065545,
+  "p95_processing_ms": 278.2342999998946,
+  "events": [
+    {
+      "id": "65f39d97-e34f-43b8-9d07-4bcce4b36ea5",
+      "time": 8.29941669999971,
+      "status": "review",
+      "chest_type": "Unknown",
+      "confidence": 0.6,
+      "reason": "Closed chest + near-complete search + fresh CHEST XP; opened state not established; unvalidated profile"
+    },
+    {
+      "id": "b7e769ae-570e-46ba-bc2e-7bf5fa038b05",
+      "time": 2.063426500011701,
+      "status": "review",
+      "chest_type": "Unknown",
+      "confidence": 0.6,
+      "reason": "Closed chest + near-complete search + fresh CHEST XP; opened state not established; unvalidated profile"
+    }
+  ],
+  "confirmed_total": 0,
+  "candidate_metrics": {
+    "matched": 2,
+    "missed": 0,
+    "false": 0,
+    "duplicates": 0
+  },
+  "errors": [],
+  "actual_game_capture_tested": false,
+  "release_gate": false,
+  "note": "Timed worker, real-time lossless replay, temporary SQLite ledger. Development clip; not held-out accuracy."
+}

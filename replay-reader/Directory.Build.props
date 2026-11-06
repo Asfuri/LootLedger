@@ -1,0 +1,12 @@
+<Project>
+  <!-- Settings for LootLedger's replay helper and the vendored reader. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Deterministic>true</Deterministic>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <!-- Vendored code carries nullable and unreachable-code warnings upstream. -->
+    <NoWarn>$(NoWarn);CS8600;CS8601;CS8602;CS8603;CS8604;CS8605;CS8607;CS8618;CS8619;CS8625;CS8629;CS8714;CS8762;CS8765;CS8767;CS0162;CS0168;CS0219;CS0414;CS0649;CS1998</NoWarn>
+  </PropertyGroup>
+</Project>
