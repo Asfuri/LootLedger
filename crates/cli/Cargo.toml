@@ -1,0 +1,9 @@
+[package]
+name = "lootledger-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+lootledger-core = { path = "../core" }
+serde_json = "1"

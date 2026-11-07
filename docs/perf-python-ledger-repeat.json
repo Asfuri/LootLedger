@@ -1,0 +1,19 @@
+{
+  "measured_utc": "2026-11-07T19:29:28.517032+00:00",
+  "exe_bytes": 82459084,
+  "first_visible_window_ms": 33137.3,
+  "first_paint_ms": null,
+  "launch_cache": "uncontrolled (not a cold-cache claim)",
+  "settle_seconds": 60,
+  "idle_sample_seconds": 30.039,
+  "processes": 2,
+  "ledger_rows": {
+    "events": 2827,
+    "matches": 127,
+    "match_meta": 121
+  },
+  "working_set_bytes": 282890240,
+  "private_bytes": 216186880,
+  "cpu_seconds": 8.65625,
+  "idle_cpu_percent_one_core": 0.0
+}

@@ -19,3 +19,4 @@ replay-reader/publish/
 *.mkv
 *.avi
 *.mov
+target/

@@ -1,0 +1,25 @@
+export global Tokens {
+    in property <bool> dark: true;
+    in property <bool> motion: true;
+    in property <int> corners: 1;
+    out property <color> surface: dark ? #14131a : #fdf8ff;
+    out property <color> container: dark ? #201e26 : #f1ecf5;
+    out property <color> high: dark ? #2b2832 : #e8e1ed;
+    out property <color> ink: dark ? #e9e0ef : #211d27;
+    out property <color> muted: dark ? #c9bfd0 : #645b6d;
+    out property <color> accent: dark ? #d3bbff : #6b489c;
+    out property <color> selected: dark ? #4c3d61 : #eaddff;
+    out property <color> outline: dark ? #4c4455 : #cfc4d8;
+    out property <color> close-hover: #c42b1c;
+    out property <color> white: #ffffff;
+    out property <length> card: corners == 0 ? 0px : corners == 2 ? 28px : 20px;
+    out property <length> control: corners == 0 ? 0px : 12px;
+    out property <length> pill: corners == 0 ? 0px : 32px;
+    out property <length> xs: 4px;
+    out property <length> sm: 8px;
+    out property <length> md: 12px;
+    out property <length> lg: 16px;
+    out property <length> xl: 24px;
+    out property <length> xxl: 32px;
+    out property <duration> duration: motion ? 220ms : 0ms;
+}

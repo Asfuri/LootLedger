@@ -1,5 +1,79 @@
 # LootLedger validation
 
+# Unreleased Rust migration (7 November 2026)
+
+The Python v0.7.1 application remains the production reference. The Rust app is
+a read-only preview on `rust-port`; it has not passed full parser or UI parity
+and must not replace the release. See [docs/MIGRATION.md](docs/MIGRATION.md),
+[the feature inventory](docs/FEATURES.md) and [baseline measurements](docs/PERF.md).
+
+Verified in this migration session:
+
+- **Replay decoder parity:** `scripts/golden_rust.py --old-jsonl target/golden/old.jsonl`
+  decoded 100 local replays with the Rust decoder (`lootledger-cli decode`). Each was
+  compared with the C# reader's output for the same file: 99 finished, 1 still live
+  (both refused it), and 8,971 openings. Every opening (time, class, searched or
+  broken, who, player, pawn, actor, episode), owner, teammate, display name,
+  placement, total players, eliminations, playlist, session, team size, branch and
+  timestamp matched. `parser_parity`, `storage_parity` and `existing_ledger_read`
+  were all true. Openings with equal times are compared in a fixed order (the old
+  sort is unstable), and only the presence of an error is compared.
+
+- **Python regression:** all 182 existing tests passed (`pytest -q -p no:cacheprovider`).
+- **Attribution and persistence golden check:** `scripts/golden_rust.py --summary-only`
+  compared 100 saved C# parser results with Rust summaries, deterministic UUIDv5
+  match/event IDs and player/type splits. Persisted matches, events, metadata and
+  replay-file records matched. Python opened and edited the Rust-created database;
+  Rust re-import kept the corrections and undone events. The existing 124-match,
+  2,723-event ledger was opened read-only and its totals matched. This is **not
+  replay-decoder parity**.
+- **Core tests:** bit reads, headers, partial chunks, incremental tail offsets,
+  classification, imports, corrections, notes, undo, backup/restore, automatic
+  backup before old-schema upgrades, and spreadsheet-safe atomic exports have
+  unit checks. Generated tests exercise partial-to-final imports and repeated
+  imports without duplicate counts or resurrected corrections.
+- **Real file observation:** a 60-second, two-second-interval read-only sample
+  captured a replay growing from 11,619,413 to 12,611,227 bytes. Complete recorded
+  time advanced from 680.449 to 725.134 seconds. While live, the encrypted header
+  had a **32-byte all-zero key placeholder**. At finalization the live flag cleared
+  and the key became nonzero. The existing C# decoder rejected the live file, as
+  expected. The Rust lock guard was corrected to recognize the placeholder and
+  to retain the existing decoder's encrypted-live guard. This observed file
+  transition does not validate Rust chest counts or the overlay.
+- **Window spike:** `scripts/qa_rust.py` sent synthetic messages to the actual
+  titled Slint HWND at 96 DPI. Caption, maximize/Snap target (`HTMAXBUTTON`),
+  interactive close area, resize corners, maximize and restore checks passed.
+  The script excludes hidden IME/helper windows from its selection.
+- **Runtime imports:** the first software-rendered GUI spike was 11,731,968 bytes.
+  `scripts/check_pe_runtime.py` found only Windows system imports and no dynamic
+  CRT, Qt, Python, .NET or WebView imports. It checks direct/delay imports, not
+  every possible dynamic LoadLibrary call. This incomplete spike is not a
+  full-parity executable-size comparison.
+- **Screenshots:** 12 native-frame Python "before" screenshots were captured.
+  The Rust script captured 36 preview images: six pages, dark/light, 900x600,
+  1240x860 and 2560x1080. Overview/dark/small, Matches/light/medium and
+  Settings/dark/small were inspected; square table-header corners and touching
+  settings buttons were found and corrected in source. Captures do not prove
+  that the missing page controls exist or that all combinations were reviewed.
+
+Still unverified or unfinished:
+
+- **Live import and overlay:** Rust chest decoding/import handoff, complete live
+  states, counts/sounds, overlay, click-through and real-game behavior.
+- **UI parity:** dashboard customization, all cards/charts and tooltips, filters,
+  profiles, correction/data actions, sessions/goals/trophies, settings and palette,
+  command palette, shortcuts, onboarding, image sharing and notifications.
+- **Window/display:** actual mouse dragging, Aero Snap and Snap Layout popup,
+  Win+Arrow, taskbar auto-hide, native animations, window-state persistence,
+  disconnected-monitor recovery, 100/125/150% displays and mixed-DPI moves,
+  screen readers and full keyboard access.
+- **Performance:** true cold-start first paint, full-parity memory/CPU/size,
+  renderer selection and steady 60-fps chart/physical-drag behavior. Baseline
+  reports record cache/interference limitations explicitly.
+- **Visual QA:** remaining screenshots, all density/text/corner settings, dialogs
+  and real input remain open. The separate Rust CI workflow has been added but
+  has not been run on GitHub.
+
 # 0.7.1 UI polish
 
 Date: 7 November 2026. Windows 11, rendered with real Windows fonts and nothing shown on screen.

@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "file": "fallback.replay",
+  "ok": true,
+  "live": false,
+  "timestamp": null,
+  "lengthSeconds": 1.001,
+  "sessionId": "synthetic-fallback-rounding",
+  "playlist": "Playlist_DefaultSolo",
+  "owner": {"epicId": "fixture-owner", "name": "Recorder", "team": 1},
+  "teammates": [],
+  "events": [
+    {"actor": 42, "episode": 0, "t": 0.5, "cls": "Tiered_Chest_Athena_C", "kind": "opened", "by": "me"}
+  ]
+}

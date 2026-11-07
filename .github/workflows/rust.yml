@@ -1,0 +1,57 @@
+name: Rust migration checks (not a release)
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.cargo/**'
+      - 'crates/**'
+      - 'scripts/golden_rust.py'
+      - '.github/workflows/rust.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  candidate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Install stable Rust
+        shell: pwsh
+        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+      - name: Format, tests and preview build
+        shell: pwsh
+        run: |
+          cargo fmt --all --check
+          if ($LASTEXITCODE) { throw 'Rust formatting failed' }
+          cargo clippy --workspace --all-targets --locked -- -D warnings
+          if ($LASTEXITCODE) { throw 'Clippy failed' }
+          cargo test --workspace --release --locked -j 2
+          if ($LASTEXITCODE) { throw 'Rust tests failed' }
+          cargo build --release --locked -p lootledger -p lootledger-cli -j 2
+          if ($LASTEXITCODE) { throw 'Rust preview build failed' }
+      - name: Attribution and storage fixture gate (not parser parity)
+        shell: pwsh
+        run: |
+          python scripts/golden_rust.py --rust target/release/lootledger-cli.exe --fixture tests/fixtures/replay-squad.json --summary-only --output target/golden/ci-summary.json
+          if ($LASTEXITCODE) { throw 'Storage golden check failed' }
+          python scripts/golden_rust.py --rust target/release/lootledger-cli.exe --fixture tests/fixtures/replay-fallback.json --summary-only --output target/golden/ci-fallback.json
+          if ($LASTEXITCODE) { throw 'Timestamp fallback golden check failed' }
+      - name: Check static runtime imports
+        shell: pwsh
+        run: |
+          python scripts/check_pe_runtime.py target/release/lootledger.exe --output target/pe-imports.json
+          if ($LASTEXITCODE) { throw 'Unexpected runtime dependency' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Rust-migration-preview-NOT-parity-complete
+          path: |
+            target/release/lootledger.exe
+            target/pe-imports.json
+            target/golden/ci-summary.json

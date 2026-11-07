@@ -56,6 +56,11 @@ Every setting applies immediately and is saved to `%LOCALAPPDATA%\LootLedger\ui-
 
 ## Build from source
 
+The Rust/Slint rewrite is being developed separately on `rust-port`. It is a
+read-only migration preview; the Python app below remains the working release.
+See [migration status and parity gates](docs/MIGRATION.md) and the
+[performance baseline](docs/PERF.md).
+
 Requirements: Windows 10/11 x64, Python 3.11–3.14 x64. The build script installs a private .NET 10 SDK into `.dotnet\` when none is found.
 
 ```powershell
