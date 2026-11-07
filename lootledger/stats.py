@@ -87,11 +87,11 @@ def series(per_day, grain, start, end):
     return sorted(buckets.items())
 
 
-def trend(snap, grain, days):
-    """Chart points for the trend card. days=0 means everything recorded so far."""
+def trend(snap, grain, days, key="per_day"):
+    """Chart points for the trend card (key="match_days" counts matches instead). days=0 means everything."""
     today = snap["today_date"]
     start = today - timedelta(days=days - 1) if days else min(snap["per_day"], default=today)
-    return series(snap["per_day"], grain, start, today)
+    return series(snap[key], grain, start, today)
 
 
 def last_days(snap, count):
@@ -192,6 +192,10 @@ def compute(events, matches, now, session_start=None, include_broken=True):
             match_types.setdefault(event.match_id, Counter())[event.chest_type] += event.amount
 
     analyzed = sorted((m for m in matches if m["meta"] is not None), key=lambda m: m["started"])
+    heat_matches, match_days = [[0] * 24 for _ in range(7)], Counter()  # for the tooltips
+    for m in analyzed:
+        heat_matches[m["started"].weekday()][m["started"].hour] += 1
+        match_days[m["started"].date()] += 1
     analyzed_ids = {m["id"] for m in analyzed}
     modes, containers, team_types, team_containers = {}, Counter(), Counter(), Counter()
     team_opened = team_broken = unattributed = 0
@@ -259,7 +263,8 @@ def compute(events, matches, now, session_start=None, include_broken=True):
         "best_day": best_day if best_day and best_day[1] else None,
         "streak_longest": streak_longest, "streak_current": streak_current,
         "session_best": _longest_session(analyzed), "peak_hour": _peak_hour(events) if events else (0, None),
-        "heat": heat, "team_total": team_total, "team_types": team_types,
+        "heat": heat, "heat_matches": heat_matches, "match_days": match_days,
+        "team_total": team_total, "team_types": team_types,
         "team_opened": team_opened, "team_broken": team_broken, "team_containers": team_containers,
         "unattributed": unattributed, "board": board(rows),
         "older_matches": sum(1 for m in analyzed if "players" not in m["meta"]),

@@ -17,7 +17,7 @@ RANGES = (7, 30, 90, 0)  # days; 0 means all time
 CHOICES = {
     "theme": ("light", "dark", "system"), "corners": ("sharp", "default", "round"),
     "density": ("compact", "comfortable"), "font_scale": ("S", "M", "L", "XL"),
-    "chart_style": ("bar", "line", "area"), "background": ("solid", "tonal"),
+    "chart_style": ("bar", "line", "smooth", "area"), "background": ("solid", "tonal"),
     "date_format": ("dmy", "mdy", "iso"), "separators": (",", ".", " ", ""), "playtime": ("hm", "decimal"),
     "motion": ("full", "reduced", "off"), "overlay_size": ("S", "M", "L"),
     "overlay_corner": ("free", "top_left", "top_right", "bottom_left", "bottom_right"),
@@ -47,7 +47,7 @@ def normalize_layout(items):
 @dataclass
 class Prefs:
     theme: str = "system"
-    seed: str = "#e8b04f"
+    seed: str = "#e8b04f"  # style-lint: allow (the stored default accent; theme.SEEDS has the same value)
     contrast: bool = False
     corners: str = "default"
     density: str = "comfortable"

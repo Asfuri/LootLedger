@@ -76,6 +76,10 @@ Development:
 .\replay-reader\publish\LootLedger.ReplayReader.exe [--trace] <file.replay>   # Raw JSON for one replay
 ```
 
+### Checking the look
+
+`python scripts/visual_qa.py OUT` saves screenshots of every page at three window sizes in light and dark, the corner, density and text-size variants, tooltips, menus and dialogs, with a `checklist.md` to work through. It uses example data in a temporary folder. `tests/test_style_lint.py` keeps colours, radii and form controls inside `theme.py` and `controls.py`.
+
 ### Layout
 
 - `replay-reader/`: C# helper. `ChestReplayReader.cs` tracks each container's search/break episodes and resolves the searching pawn to you, a teammate or someone else. `vendor/FortniteReplayDecompressor` is the MIT replay parser, with a small documented patch (`VENDORED.md`).

@@ -1,5 +1,37 @@
 # LootLedger validation
 
+# 0.7.1 UI polish
+
+Date: 7 November 2026. Windows 11, rendered with real Windows fonts and nothing shown on screen.
+
+Fixed:
+
+- **Blank tooltips:** Qt tooltips inherited the window stylesheet, which makes label backgrounds transparent and sets the theme's text colour, so they came out as an empty light box. Every tooltip (charts, heatmap, donut, sparklines, timeline, and every `setToolTip`) now uses one painted component: inverse-surface colour, rounded, soft shadow, 12–13 px text, a 120 ms fade (none with motion off), and it hides as soon as the pointer leaves. It sits beside the hovered thing, flips below it when there's no room above, stays inside the window and the screen, and never takes the mouse. Heatmap cells read like "Tuesday, 21:00 · 14 chests · 3 matches", and empty cells say "No matches". Chart points show the date, chests, matches and the change from the previous period. Donut segments show the type, count and share. The chart has a crosshair and highlighted point, and the hovered heatmap cell gets an outline.
+- **Keyboard:** the chart, heatmap and donut take focus. Arrow keys move between points and cells, show the tooltip, and update the accessible description.
+- **Segmented buttons:** one painted M3 component everywhere: a pill with dividers, and the chosen segment tonal with a check. The fill slides when the choice changes. Left and Right change the choice. When there isn't room, it collapses to one pill that opens a menu.
+- **Goals and numbers:** native spin boxes are replaced by a pill stepper (− value +) that accepts typing, enforces its limits, and has a presets menu (No goal, 10, 25, 50, 100, Custom…). The goals are labelled "Daily goal" and "Weekly goal", and both have the same size and alignment.
+- **Other controls:** selects, date fields, sliders, menus, scrollbars, the calendar popup and lists are all styled from tokens. Pages create controls only through `controls.py`.
+- **Shapes:** a full scale (4/8/12/16/28, plus cards at 20 and pills at half the height) that follows the corner setting everywhere, including the rail, switches, swatches, charts, heatmap cells, tables and menus.
+- **Charts:** bars have rounded tops; lines have round caps and joins, with a new Smooth style; the area fill fades to transparent; gridlines are faint and dashed. X-axis labels thin themselves so they never overlap, and the last one stays inside the chart. Donut segments are rounded arcs with small gaps. The heatmap has rounded cells, a less→more legend, and a square-root colour scale so low values are still visible.
+- **Tables:** hover and selection are one rounded highlight across the whole row; the header is tonal with rounded ends; row height follows density.
+- **Dialogs:** they open over a scrim with a short fade, are modal, and close with Esc.
+- **Small windows:** the search box moves to its own row when the filters don't fit, so nothing is squeezed until its text is cut.
+- **Navigation rail:** the active pill grows in. Icons are 24 px.
+
+Verified, and how:
+
+- **Screenshots:** `python scripts/visual_qa.py OUT` renders every page at 900×600, 1240×860 and 2560×1080 in light and dark, plus sharp/compact/S and round/comfortable/XL. It also shoots tooltips on the heatmap (middle and right edge), the chart and the donut, and captures menus, dialogs and full pages. It writes `checklist.md` beside the images. I reviewed these and fixed what they showed: notches at the bar bases, the squeezed Matches search, a clipped stepper label, the tooltip position, and square select popups.
+- **Tests:** 182 pass. `tests/test_controls.py` covers tooltip content and placement, heatmap and chart keyboard reading, stepper limits and typing, segmented keys and collapse, and table rows. It also runs the QA script. `tests/test_style_lint.py` fails on any hex or rgb() colour, literal radius, or raw Qt form control outside `theme.py` and `controls.py`.
+
+Not yet verified (no real display interaction was possible):
+
+- **Pointer behaviour:** tooltip and hover feel with a real mouse, including flicker at fast pointer speeds.
+- **Select popup:** whether its corners render rounded (this needs Windows to composite the transparent popup; the off-screen capture shows square corners).
+- **Dialog corners:** dialog windows are rounded by Windows 11 itself, not by LootLedger.
+- **Screen readers:** the tooltip window does not announce itself with a tooltip role; screen readers get the text through each chart's accessible description instead.
+- **Contrast:** checked for the theme colours by the existing tests, not for every state layer.
+
+
 # 0.7 live match, motion, UI fixes and new features (not yet released)
 
 Date: 7 November 2026. Windows 11, with Fortnite running in the lobby. No match was played during development.

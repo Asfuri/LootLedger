@@ -1,10 +1,12 @@
 """Dashboard cards. Each card reads the shared snapshot and redraws itself on refresh."""
+from datetime import timedelta
 import time
 
 from PySide6.QtCore import QDate, QEasingCurve, QPropertyAnimation, QVariantAnimation, Qt
-from PySide6.QtWidgets import QDateEdit, QGraphicsOpacityEffect, QHBoxLayout, QGridLayout, QVBoxLayout
+from PySide6.QtWidgets import QGraphicsOpacityEffect, QHBoxLayout, QGridLayout, QVBoxLayout
 
 from . import features, stats, theme
+from .controls import date_field
 from .prefs import duration, elapsed, number, short_date
 from .widgets import (Card, Donut, Heatmap, Pulse, Ring, Segmented, SeriesChart, Sparkline, Timeline, bar_rows,
                       clear_layout, label, wrapped)
@@ -39,7 +41,7 @@ TITLES = {
 }
 GRAINS = (("day", "Day"), ("week", "Week"), ("month", "Month"))
 TREND_RANGES = (("7", "7d"), ("30", "30d"), ("90", "90d"), ("0", "All"))
-CHART_STYLES = (("bar", "Bar"), ("line", "Line"), ("area", "Area"))
+CHART_STYLES = (("bar", "Bar"), ("line", "Line"), ("smooth", "Smooth"), ("area", "Area"))
 
 
 def widget_title(key):
@@ -115,7 +117,12 @@ class StatTile(Card):
             self.delta.setStyleSheet(f"color: {theme.CURRENT.c[color_key]};")
         self.spark.setVisible(bool(spark))
         if spark:
-            self.spark.set_values(spark)
+            if spark is ctx.snap["recent_totals"]:
+                labels = [f"Match {i + 1} of your last {len(spark)}" for i in range(len(spark))]
+            else:
+                today = ctx.snap["today_date"]
+                labels = [short_date(today - timedelta(days=len(spark) - 1 - i), ctx.prefs) for i in range(len(spark))]
+            self.spark.set_values(spark, labels)
         self.show_value(value, decimals, ctx)
 
     def show_value(self, value, decimals, ctx):
@@ -297,9 +304,21 @@ class TrendCard(Card):
         if ctx is None:
             return
         points = stats.trend(ctx.snap, self.grain, self.days)
+        played = stats.trend(ctx.snap, self.grain, self.days, "match_days")
         formatted = {"day": short_date, "week": short_date}.get(self.grain)
         labels = [(formatted(day, ctx.prefs) if formatted else day.strftime("%b %Y"), value) for day, value in points]
-        self.chart.set_data(labels, ctx.prefs.chart_style, lambda v: number(v, ctx.prefs))
+        if self.grain == "week":
+            labels = [(f"Week of {text}", value) for text, value in labels]
+        unit = {"day": "day", "week": "week", "month": "month"}[self.grain]
+        details = []
+        for index, ((_, value), (_, matches)) in enumerate(zip(points, played)):
+            lines = [f"{matches} match{'es' if matches != 1 else ''}"]
+            if index:
+                change = value - points[index - 1][1]
+                lines.append(f"{'+' if change > 0 else '−' if change < 0 else '±'}{number(abs(change), ctx.prefs)} "
+                             f"vs the previous {unit}")
+            details.append(lines)
+        self.chart.set_data(labels, ctx.prefs.chart_style, lambda v: number(v, ctx.prefs), details)
         total = sum(value for _, value in points)
         self.caption.setText(f"{number(total, ctx.prefs)} chests in this range")
 
@@ -324,7 +343,7 @@ class TypesCard(Card):
         clear_layout(self.table)
         types = snap["types"].most_common()
         self.donut.set_slices([(name, value, theme.CURRENT.type_color(name)) for name, value in types if value],
-                              number(snap["all"], prefs), "chests")
+                              number(snap["all"], prefs), "chests", lambda v: number(v, prefs))
         # Rows cover every type either side opened, so the teammate column always adds up to its total.
         names = [name for name, _ in types] + sorted(set(snap["team_types"]) - set(snap["types"]))
         for column, text in enumerate(("", "Type", "You", "Teammates*")):
@@ -373,7 +392,7 @@ class HeatCard(Card):
         self.body.addWidget(label("Local time · darker means more chests", "muted"))
 
     def refresh(self, ctx):
-        self.heat.set_grid(ctx.snap["heat"], lambda v: number(v, ctx.prefs))
+        self.heat.set_grid(ctx.snap["heat"], lambda v: number(v, ctx.prefs), ctx.snap["heat_matches"])
 
 
 class RecordsCard(Card):
@@ -617,9 +636,7 @@ class CompareCard(Card):
             row = QHBoxLayout()
             row.addWidget(label(name, "muted"))
             for value, tip in ((start, "from"), (end, "to")):
-                edit = QDateEdit(value)
-                edit.setCalendarPopup(True)
-                edit.setAccessibleName(f"{name} period {tip}")
+                edit = date_field(value, f"{name} period {tip}")
                 edit.dateChanged.connect(lambda *_: self.redraw())
                 row.addWidget(edit)
                 self.edits.append(edit)

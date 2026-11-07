@@ -11,22 +11,25 @@ import math
 from pathlib import Path
 import sys
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QFontDatabase, QGuiApplication, QPalette
-from PySide6.QtWidgets import QToolTip
+import tempfile
+
+from PySide6.QtCore import QEasingCurve, QPointF, QRectF, Qt
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QGuiApplication, QImage, QPainter
 
 FONT_FILE = Path(__file__).resolve().parent / "assets" / "fonts" / "MaterialSymbolsRounded.ttf"
 ICON_FONT = "Material Symbols Rounded"
 SEEDS = {"Amber": "#e8b04f", "Violet": "#a98aee", "Blue": "#5b9cf0",
          "Teal": "#3fb8a0", "Rose": "#e8718f", "Green": "#7cc46a"}
 FONT_SCALES = {"S": .9, "M": 1.0, "L": 1.15, "XL": 1.3}
-CORNERS = {"sharp": .4, "default": 1.0, "round": 1.4}
+CORNERS = {"sharp": .25, "default": 1.0, "round": 1.4}
 DENSITY = {"compact": .8, "comfortable": 1.0}
 TYPE_ORDER = ("Chest", "Rare chest", "Relic chest", "Buried chest", "Sprite poster chest")
 ACCENTS = ("primary", "secondary", "tertiary", "error")
-SIZES = {"display": 44, "headline": 24, "title": 16, "body": 14, "label": 12, "icon": 22}
+SIZES = {"display": 44, "headline": 24, "title": 16, "body": 14, "label": 12, "icon": 24}
 SPACE = {"xs": 4, "s": 8, "m": 12, "l": 16, "xl": 24}
-RADII = {"sm": 8, "card": 20, "lg": 28}
+# Shape scale (M3): extra-small 4, small 8, medium 12, large 16, extra-large 28; cards 20. Pills are half the
+# height (see pill()). Every value is scaled by the corner setting.
+RADII = {"xs": 4, "sm": 8, "md": 12, "lg": 16, "xl": 28, "card": 20}
 # Chest types keep one colour everywhere, whatever the accent: Chest gold, Rare blue, Relic purple, Buried green,
 # Sprite poster pink, anything else grey. The colourblind option uses the Okabe-Ito palette instead.
 RARITY_HUES = (75, 250, 300, 150, 350)
@@ -78,6 +81,7 @@ class Tokens:
     motion: bool
     family: str
     full_motion: bool = True  # False at the Reduced level: short fades only, no count-ups or loops
+    corners: str = "default"
 
     def type_color(self, name):
         return self.chart[TYPE_ORDER.index(name)] if name in TYPE_ORDER else self.chart[-1]
@@ -168,6 +172,45 @@ def _palette_of(name):
     return "neutral_variant" if name in ("on_surface_variant", "outline", "outline_variant") else "neutral"
 
 
+EMPHASIZED = QEasingCurve(QEasingCurve.Type.BezierSpline)  # Material 3 "emphasized decelerate"
+EMPHASIZED.addCubicBezierSegment(QPointF(.05, .7), QPointF(.1, 1), QPointF(1, 1))
+
+
+def EASE(progress):
+    return EMPHASIZED.valueForProgress(min(max(progress, 0.0), 1.0))
+
+
+def pill(height):
+    """Full rounding (half the height); with corners set to sharp, the small radius instead."""
+    return height / 2 if CURRENT.corners != "sharp" else CURRENT.r["sm"]
+
+
+def layer(color, alpha):
+    """A state layer: the colour at a low opacity (hover 8%, press 12%)."""
+    shade = QColor(color)
+    shade.setAlphaF(alpha)
+    return shade
+
+
+def icon_file(name, color, px=18):
+    """A Material Symbols glyph as a PNG, for the few places Qt stylesheets need an image (select chevrons)."""
+    folder = Path(tempfile.gettempdir()) / "lootledger-icons"
+    folder.mkdir(exist_ok=True)
+    path = folder / f"{name}-{color.lstrip('#')}-{px}.png"
+    if not path.exists() and QGuiApplication.instance():
+        image = QImage(px * 2, px * 2, QImage.Format.Format_ARGB32)
+        image.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(image)
+        font = QFont(CURRENT.family if CURRENT else ICON_FONT)
+        font.setPixelSize(px * 2)
+        painter.setFont(font)
+        painter.setPen(QColor(color))
+        painter.drawText(QRectF(0, 0, px * 2, px * 2), Qt.AlignmentFlag.AlignCenter, name)
+        painter.end()
+        image.save(str(path))
+    return path.as_posix()
+
+
 def build(prefs, dark, motion, family=ICON_FONT, full=True):
     """Create the tokens for these preferences and make them the ones painted widgets use."""
     global CURRENT
@@ -187,16 +230,10 @@ def build(prefs, dark, motion, family=ICON_FONT, full=True):
         sp={k: max(2, round(v * density)) for k, v in SPACE.items()},
         r={k: round(v * CORNERS[prefs.corners]) for k, v in RADII.items()},
         btn_h=round(40 * density), background=prefs.background, motion=motion, family=family,
-        full_motion=motion and full)
+        full_motion=motion and full, corners=prefs.corners)
     return CURRENT
 
 
-def apply_tooltips(T):
-    """Tooltips are top-level popups, so they take the palette, not the window stylesheet."""
-    palette = QPalette()
-    palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(T.c["inverse_surface"]))
-    palette.setColor(QPalette.ColorRole.ToolTipText, QColor(T.c["inverse_on_surface"]))
-    QToolTip.setPalette(palette)
 
 
 def is_dark(preference):
@@ -234,6 +271,9 @@ def stylesheet(T):
     root = (f"qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {surface}, "
             f"stop:1 {mix(surface, c['primary_container'], .35)})" if T.background == "tonal" else surface)
     family = T.family
+    full = T.btn_h // 2 if T.corners != "sharp" else r["sm"]  # pill buttons and fields
+    chevron = icon_file("expand_more", c["on_surface_variant"])
+    field = c["surface_container_highest"]
     return f"""
     * {{ font-family: "Segoe UI"; font-size: {px['body']}px; color: {c['on_surface']}; }}
     QMainWindow {{ background: {surface}; }}
@@ -256,13 +296,13 @@ def stylesheet(T):
     QLabel#iconOnAccent {{ font-family: "{family}"; font-size: {px['icon']}px; color: {c['on_primary_container']}; }}
     QFrame#card {{ background: {c['surface_container_high']}; border-radius: {r['card']}px; }}
     QFrame#cardAccent {{ background: {c['primary_container']}; border-radius: {r['card']}px; }}
-    QFrame#panel {{ background: {c['surface_container_low']}; border-radius: {r['sm']}px; }}
-    QFrame#segmented {{ background: transparent; border: 1px solid {c['outline']}; border-radius: 999px; }}
-    QFrame#snackbar {{ background: {c['inverse_surface']}; border-radius: {r['sm']}px; }}
+    QFrame#panel {{ background: {c['surface_container_low']}; border-radius: {r['lg']}px; }}
+    QFrame#snackbar {{ background: {c['inverse_surface']}; border-radius: {r['xs']}px; }}
+    QWidget#scrim {{ background: rgba(0, 0, 0, 0.32); }}
     QFrame#rail {{ background: {surface}; }}
 
     QPushButton {{ background: {secondary}; color: {on_secondary}; border: 2px solid transparent;
-                   border-radius: 999px; padding: 6px 20px; min-height: {T.btn_h}px; font-weight: 600; }}
+                   border-radius: {full}px; padding: 6px 20px; min-height: {T.btn_h}px; font-weight: 600; }}
     QPushButton:hover {{ background: {mix(secondary, on_secondary, .08)}; }}
     QPushButton:pressed {{ background: {mix(secondary, on_secondary, .12)}; }}
     QPushButton:disabled {{ background: {disabled_bg}; color: {disabled_fg}; }}
@@ -278,7 +318,7 @@ def stylesheet(T):
     QPushButton#danger {{ background: transparent; color: {c['error']}; border: 1px solid {c['error']}; }}
     QPushButton#danger:hover {{ background: {mix(surface, c['error'], .08)}; }}
     QPushButton#iconButton {{ font-family: "{family}"; font-size: {px['icon']}px; background: transparent;
-                              color: {c['on_surface_variant']}; border: 2px solid transparent; border-radius: 20px;
+                              color: {c['on_surface_variant']}; border: 2px solid transparent; border-radius: {20 if T.corners != 'sharp' else r['sm']}px;
                               min-width: 40px; max-width: 40px; min-height: 40px; max-height: 40px; padding: 0px; }}
     QPushButton#iconButton:hover {{ background: {state}; color: {c['on_surface']}; }}
     QPushButton#iconButton:pressed {{ background: {mix(surface, c['on_surface'], .12)}; }}
@@ -288,52 +328,87 @@ def stylesheet(T):
                        color: {c['on_primary_container']}; border: none; border-radius: {r['lg']}px;
                        min-width: 56px; max-width: 56px; min-height: 56px; max-height: 56px; padding: 0px; }}
     QPushButton#fab:hover {{ background: {mix(c['primary_container'], c['on_primary_container'], .08)}; }}
-    QPushButton#segment {{ background: transparent; color: {c['on_surface_variant']}; border: 2px solid transparent;
-                           border-radius: 999px; padding: 4px 12px; min-height: 0px; font-weight: 500; }}
-    QPushButton#segment:hover {{ background: {state}; }}
-    QPushButton#segment:checked {{ background: {secondary}; color: {on_secondary}; }}
     QPushButton#chip {{ background: transparent; color: {c['on_surface_variant']}; border: 1px solid {c['outline']};
                         border-radius: {r['sm']}px; padding: 4px 12px; min-height: 0px; font-weight: 500; }}
     QPushButton#chip:hover {{ background: {state}; }}
     QPushButton#chip:checked {{ background: {secondary}; color: {on_secondary}; border-color: {secondary}; }}
     QPushButton:focus, QPushButton#filled:focus, QPushButton#outlined:focus, QPushButton#text:focus,
     QPushButton#danger:focus, QPushButton#iconButton:focus, QPushButton#fab:focus,
-    QPushButton#segment:focus, QPushButton#chip:focus {{ border-color: {primary}; }}
+    QPushButton#chip:focus {{ border-color: {primary}; }}
 
-    QLineEdit, QSpinBox, QComboBox {{ background: {c['surface_container_highest']}; color: {c['on_surface']};
-                                      border: 1px solid {c['outline_variant']}; border-radius: {r['sm']}px;
-                                      padding: 6px 10px; min-height: 22px;
-                                      selection-background-color: {primary}; selection-color: {on_primary}; }}
-    QLineEdit:focus, QSpinBox:focus, QComboBox:focus {{ border: 2px solid {primary}; }}
-    QComboBox::drop-down {{ border: none; width: 24px; }}
-    QComboBox QAbstractItemView {{ background: {c['surface_container_highest']}; color: {c['on_surface']};
-                                  selection-background-color: {secondary}; selection-color: {on_secondary};
-                                  border: none; padding: 4px; }}
-    QTableView {{ background: {c['surface_container_low']}; color: {c['on_surface']}; border: none;
-                  gridline-color: transparent; selection-background-color: {secondary};
-                  selection-color: {on_secondary}; }}
+    QLineEdit, QComboBox, QDateEdit {{ background: {field}; color: {c['on_surface']};
+                                       border: 1px solid {c['outline_variant']}; border-radius: {r['md']}px;
+                                       padding: 6px 12px; min-height: 22px;
+                                       selection-background-color: {primary}; selection-color: {on_primary}; }}
+    QLineEdit:hover, QComboBox:hover, QDateEdit:hover {{ border-color: {c['outline']}; }}
+    QLineEdit:focus, QComboBox:focus, QDateEdit:focus, QComboBox:on {{ border: 2px solid {primary}; }}
+    QComboBox::drop-down, QDateEdit::drop-down {{ border: none; width: 30px; subcontrol-position: center right; }}
+    QComboBox::down-arrow, QDateEdit::down-arrow {{ image: url({chevron}); width: 18px; height: 18px; }}
+    QComboBox QAbstractItemView {{ background: {c['surface_container_high']}; color: {c['on_surface']};
+                                  border: none; border-radius: {r['md']}px; padding: 6px; outline: none;
+                                  selection-background-color: {secondary}; selection-color: {on_secondary}; }}
+    QComboBox QAbstractItemView::item {{ min-height: {T.btn_h - 8}px; padding: 0px 10px; border-radius: {r['sm']}px; }}
+    QComboBox QAbstractItemView::item:hover {{ background: {state}; }}
+    QComboBox QAbstractItemView::item:selected {{ background: {secondary}; color: {on_secondary}; }}
+    QComboBoxPrivateContainer {{ background: transparent; border: none; padding: 0px; }}
+    QWidget#stepper {{ background: {field}; border: 1px solid {c['outline_variant']}; border-radius: {full}px; }}
+    QWidget#stepper:hover {{ border-color: {c['outline']}; }}
+    QLineEdit#stepperText {{ background: transparent; border: none; padding: 0px 4px; min-height: 0px; }}
+    QPushButton#stepperButton {{ font-family: "{family}"; font-size: 20px; background: transparent; border: none;
+                                  color: {c['on_surface_variant']}; border-radius: {16 if T.corners != 'sharp' else r['sm']}px;
+                                  min-width: 32px; max-width: 32px; min-height: 32px; max-height: 32px; padding: 0px; }}
+    QPushButton#stepperButton:hover {{ background: {state}; color: {c['on_surface']}; }}
+    QPushButton#stepperButton:pressed {{ background: {mix(surface, c['on_surface'], .12)}; }}
+    QPushButton#stepperButton:focus {{ border: 2px solid {primary}; }}
+    QPushButton#stepperButton:disabled {{ background: transparent; color: {disabled_fg}; }}
+    QSlider::groove:horizontal {{ height: 4px; background: {c['surface_container_highest']}; border-radius: 2px; }}
+    QSlider::sub-page:horizontal {{ background: {primary}; border-radius: 2px; }}
+    QSlider::handle:horizontal {{ background: {primary}; width: 20px; height: 20px; margin: -8px 0px;
+                                  border-radius: {10 if T.corners != 'sharp' else r['xs']}px; }}
+    QSlider::handle:horizontal:hover {{ background: {mix(primary, on_primary, .08)}; }}
+    QSlider:focus {{ border: none; }}
+    QCalendarWidget QWidget {{ background: {c['surface_container_high']}; color: {c['on_surface']};
+                               alternate-background-color: {c['surface_container_high']}; }}
+    QCalendarWidget QToolButton {{ background: transparent; color: {c['on_surface']}; border-radius: {r['sm']}px;
+                                   padding: 4px 8px; font-weight: 600; }}
+    QCalendarWidget QToolButton:hover {{ background: {state}; }}
+    QCalendarWidget QAbstractItemView {{ selection-background-color: {primary}; selection-color: {on_primary};
+                                         border: none; outline: none; }}
+    QTableView {{ background: transparent; color: {c['on_surface']}; border: 2px solid transparent;
+                  border-radius: {r['md']}px; gridline-color: transparent; outline: none; }}
     QTableView::item {{ padding: 6px 8px; border: none; }}
-    QTableView::item:hover {{ background: {state}; }}
-    QTableView::item:selected {{ background: {secondary}; color: {on_secondary}; }}
     QTableView:focus {{ border: 2px solid {primary}; }}
     QFrame#dropMarker {{ border: 3px dashed {primary}; border-radius: {r['card']}px; background: {primary_state}; }}
-    QHeaderView {{ background: {c['surface_container_low']}; }}
-    QHeaderView::section {{ background: {c['surface_container_low']}; color: {c['on_surface_variant']};
-                            border: none; border-bottom: 1px solid {c['outline_variant']}; padding: 8px;
-                            font-size: {px['label']}px; font-weight: 600; }}
-    QTableCornerButton::section {{ background: {c['surface_container_low']}; border: none; }}
-    QProgressBar {{ background: {c['surface_container_highest']}; border: none; border-radius: 4px;
+    QHeaderView {{ background: transparent; border: none; }}
+    QHeaderView::section {{ background: {c['surface_container_high']}; color: {c['on_surface_variant']};
+                            border: none; padding: 8px; font-size: {px['label']}px; font-weight: 600; }}
+    QHeaderView::section:first {{ border-top-left-radius: {r['sm']}px; border-bottom-left-radius: {r['sm']}px; }}
+    QHeaderView::section:last {{ border-top-right-radius: {r['sm']}px; border-bottom-right-radius: {r['sm']}px; }}
+    QHeaderView::section:hover {{ background: {mix(c['surface_container_high'], c['on_surface'], .08)}; }}
+    QTableCornerButton::section {{ background: transparent; border: none; }}
+    QProgressBar {{ background: {c['surface_container_highest']}; border: none; border-radius: {r['xs']}px;
                     min-height: 8px; max-height: 8px; }}
-    QProgressBar::chunk {{ background: {primary}; border-radius: 4px; }}
+    QProgressBar::chunk {{ background: {primary}; border-radius: {r['xs']}px; }}
     QScrollArea {{ background: {surface}; border: none; }}
-    QWidget#qt_scrollarea_viewport {{ background: {surface}; }}
-    QScrollBar:vertical {{ background: transparent; width: 10px; margin: 0px; }}
-    QScrollBar::handle:vertical {{ background: {c['outline_variant']}; border-radius: 4px; min-height: 32px; margin: 2px; }}
-    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0px; }}
-    QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
+    QScrollArea > QWidget#qt_scrollarea_viewport {{ background: {surface}; }}
+    QAbstractItemView > QWidget#qt_scrollarea_viewport {{ background: transparent; }}
+    QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px 0px; }}
+    QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 0px 2px; }}
+    QScrollBar::handle:vertical {{ background: {c['outline_variant']}; border-radius: {r['xs']}px; min-height: 32px; margin: 2px; }}
+    QScrollBar::handle:horizontal {{ background: {c['outline_variant']}; border-radius: {r['xs']}px; min-width: 32px; margin: 2px; }}
+    QScrollBar::handle:hover {{ background: {c['outline']}; }}
+    QScrollBar::add-line, QScrollBar::sub-line {{ width: 0px; height: 0px; }}
+    QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
     QMenu {{ background: {c['surface_container_high']}; color: {c['on_surface']}; border: none;
-             border-radius: {r['sm']}px; padding: 6px; }}
-    QMenu::item {{ padding: 8px 16px; border-radius: 6px; }}
-    QMenu::item:selected {{ background: {secondary}; color: {on_secondary}; }}
+             border-radius: {r['md']}px; padding: 6px; }}
+    QMenu::item {{ padding: 8px 32px 8px 16px; border-radius: {r['sm']}px; }}
+    QMenu::item:selected {{ background: {state}; }}
+    QMenu::item:checked {{ background: {secondary}; color: {on_secondary}; }}
+    QMenu::indicator {{ width: 0px; }}
+    QMenu::separator {{ height: 1px; background: {c['outline_variant']}; margin: 6px 8px; }}
+    QListWidget {{ background: transparent; border: none; outline: none; }}
+    QListWidget::item {{ padding: 8px 12px; border-radius: {r['sm']}px; }}
+    QListWidget::item:hover {{ background: {state}; }}
+    QListWidget::item:selected {{ background: {secondary}; color: {on_secondary}; }}
     QMessageBox, QDialog {{ background: {c['surface_container_high']}; }}
     """

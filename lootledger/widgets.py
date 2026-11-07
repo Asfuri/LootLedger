@@ -1,13 +1,16 @@
 """Material 3 widgets: cards, buttons, switches, segmented controls, snackbar, charts and the dashboard grid."""
-from PySide6.QtCore import (QEasingCurve, QEvent, QMimeData, QObject, QPoint, QPointF, QPropertyAnimation, QRectF,
+import math
+
+from PySide6.QtCore import (QEvent, QMimeData, QObject, QPoint, QPointF, QPropertyAnimation, QRectF,
                             QTimer, QVariantAnimation, Qt, Signal)
-from PySide6.QtGui import QColor, QDrag, QFont, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import (QAbstractButton, QAbstractItemView, QApplication, QButtonGroup, QFrame,
+from PySide6.QtGui import QColor, QDrag, QFont, QLinearGradient, QPainter, QPainterPath, QPen
+from PySide6.QtWidgets import (QAbstractButton, QAbstractItemView, QApplication, QFrame,
                                QGraphicsOpacityEffect, QGridLayout,
-                               QHBoxLayout, QHeaderView, QLabel, QProgressBar, QPushButton, QTableView, QToolTip,
+                               QHBoxLayout, QHeaderView, QLabel, QProgressBar, QPushButton, QTableView,
                                QVBoxLayout, QWidget)
 
 from . import theme
+from .controls import RowDelegate, Segmented, hide_tip, show_tip  # noqa: F401 (Segmented re-exported)
 from .prefs import elapsed
 
 DRAG_PREFIX = "lootledger-widget:"
@@ -70,19 +73,52 @@ def fill(combo, items):
     combo.blockSignals(False)
 
 
-def shrinkable(*widgets):
-    """Filter controls that may get narrower than their longest item, so filter bars fit small windows."""
-    for widget in widgets:
-        if hasattr(widget, "setMinimumContentsLength"):
-            widget.setSizeAdjustPolicy(widget.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-            widget.setMinimumContentsLength(7)
-        else:
-            widget.setMinimumWidth(90)
-
-
 def wrapped(widget):
     widget.setWordWrap(True)
     return widget
+
+
+class FilterBar(QWidget):
+    """A search field and its filters on one row when they fit; otherwise the search gets its own row above,
+    so no control is squeezed until its text is cut."""
+
+    def __init__(self, search, controls):
+        super().__init__()
+        self.search, self.controls, self.wrapped = search, list(controls), None
+        self.grid = QGridLayout(self)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+        self.grid.setSpacing(theme.CURRENT.sp["s"])
+        if search is not None:
+            search.setMinimumWidth(220)
+        self.place(False)
+
+    def needed(self):
+        widths = [w.sizeHint().width() for w in self.controls]
+        if self.search is not None:
+            widths.append(self.search.minimumWidth())
+        return sum(widths) + self.grid.spacing() * len(widths)
+
+    def place(self, wrapped):
+        if wrapped == self.wrapped:
+            return
+        self.wrapped = wrapped
+        for widget in self.controls + ([self.search] if self.search is not None else []):
+            self.grid.removeWidget(widget)
+        for column in range(self.grid.columnCount()):
+            self.grid.setColumnStretch(column, 0)
+        row, column = (1, 0) if wrapped and self.search is not None else (0, 1 if self.search is not None else 0)
+        if self.search is not None:
+            self.grid.addWidget(self.search, 0, 0, 1, len(self.controls) + 1 if wrapped else 1)
+            if not wrapped:
+                self.grid.setColumnStretch(0, 1)
+        for index, widget in enumerate(self.controls):
+            self.grid.addWidget(widget, row, column + index)
+        if wrapped or self.search is None:
+            self.grid.setColumnStretch(column + len(self.controls), 1)  # left-aligned, the rest is space
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.place(event.size().width() < self.needed())
 
 
 class _FitColumns(QObject):
@@ -116,6 +152,9 @@ def fit_columns(view):
 
 def autofit(view):
     """Refit the columns whenever the table is resized or shown (call fit_columns after new rows too)."""
+    view.setItemDelegate(RowDelegate(view))  # hover and selection as one rounded row highlight
+    view.verticalHeader().setDefaultSectionSize(theme.CURRENT.btn_h)  # row height follows density
+    view.setMouseTracking(True)
     view._fit = _FitColumns(view)
     view.installEventFilter(view._fit)
     view.viewport().installEventFilter(view._fit)
@@ -149,7 +188,7 @@ def bar_rows(layout, rows):
         bar.setTextVisible(False)
         bar.setMinimumWidth(40)
         if color:
-            bar.setStyleSheet(f"QProgressBar::chunk {{ background: {color}; border-radius: 4px; }}")
+            bar.setStyleSheet(f"QProgressBar::chunk {{ background: {color}; border-radius: {theme.CURRENT.r['xs']}px; }}")
         value_label = label(text, "muted")
         value_label.setWordWrap(True)
         layout.addWidget(wrapped(label(name)), index, 0)
@@ -158,8 +197,7 @@ def bar_rows(layout, rows):
     layout.setColumnStretch(1, 1)
 
 
-EMPHASIZED = QEasingCurve(QEasingCurve.Type.BezierSpline)  # Material 3 "emphasized decelerate"
-EMPHASIZED.addCubicBezierSegment(QPointF(.05, .7), QPointF(.1, 1), QPointF(1, 1))
+EMPHASIZED = theme.EMPHASIZED
 
 
 def draw_in(widget, duration=700):
@@ -245,7 +283,7 @@ class Pulse(QWidget):
     def __init__(self, size=12):
         super().__init__()
         self.setFixedSize(size, size)
-        self.color, self.level = QColor("#888"), 1.0
+        self.color, self.level = QColor(theme.CURRENT.c["outline"]), 1.0
         self.anim = QVariantAnimation(self)
         self.anim.setStartValue(1.0)
         self.anim.setKeyValueAt(.5, .3)
@@ -474,7 +512,7 @@ class Switch(QAbstractButton):
         else:
             painter.setPen(QPen(QColor(c["outline"]), 2))
             painter.setBrush(QColor(c["surface_container_highest"]))
-        painter.drawRoundedRect(track, 10, 10)
+        painter.drawRoundedRect(track, theme.pill(track.height()), theme.pill(track.height()))
         center_x, radius = (40, 8) if on else (18, 6)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor(c["on_primary"] if on else c["outline"]))
@@ -482,33 +520,10 @@ class Switch(QAbstractButton):
         if self.hasFocus():
             painter.setPen(QPen(QColor(c["primary"]), 2))
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(QRectF(0, 4, 52, 24), 12, 12)
+            painter.drawRoundedRect(QRectF(0, 4, 52, 24), theme.pill(24), theme.pill(24))
 
 
-class Segmented(QFrame):
-    """Exclusive segmented buttons. Emits the chosen key."""
-    changed = Signal(str)
 
-    def __init__(self, options, current, tip=""):
-        super().__init__()
-        self.setObjectName("segmented")
-        self.setAccessibleName(tip)
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(3, 3, 3, 3)
-        layout.setSpacing(2)
-        self.group = QButtonGroup(self)
-        self.group.setExclusive(True)
-        self.buttons = {}
-        for key, text in options:
-            item = QPushButton(text)
-            item.setObjectName("segment")
-            item.setCheckable(True)
-            item.setChecked(key == current)
-            item.setToolTip(tip)
-            item.clicked.connect(lambda checked=False, k=key: self.changed.emit(k))
-            self.group.addButton(item)
-            layout.addWidget(item)
-            self.buttons[key] = item
 
 
 class Snackbar(QFrame):
@@ -556,32 +571,41 @@ class Snackbar(QFrame):
 
 
 class SeriesChart(QWidget):
-    """Bars, a line or an area over labelled points. Bars grow in when data changes (unless motion is off)."""
+    """Bars, a line, a smooth line or an area over labelled points, with a crosshair and a tooltip per point.
+
+    Hover it, or focus it and use Left/Right (Home/End), to read each point.
+    """
+    PAD = 12
 
     def __init__(self, empty):
         super().__init__()
         self.empty = empty
-        self.points, self.style, self.fmt = [], "bar", str
+        self.points, self.details, self.style, self.fmt = [], [], "bar", str
         self.progress, self.hover = 1.0, -1
         self.setMinimumHeight(170)
         self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.anim = QVariantAnimation(self)
+        self.anim.setEasingCurve(EMPHASIZED)
         self.anim.valueChanged.connect(self._step)
 
-    def set_data(self, points, style, fmt=str):
+    def set_data(self, points, style, fmt=str, details=None):
+        """points: (label, value); details: extra tooltip lines per point (matches, change)."""
         points = list(points)
         self.fmt = fmt
+        self.details = list(details) if details else [[] for _ in points]
         if points == self.points and style == self.style:
             self.update()
             return
         self.points, self.style = points, style
+        self.hover = min(self.hover, len(points) - 1)
         total = sum(value for _, value in points)
         self.setAccessibleDescription(f"{fmt(total)} chests over {len(points)} periods")
-        if theme.CURRENT.motion and any(value for _, value in points):
+        if theme.CURRENT.full_motion and any(value for _, value in points):
             self.anim.stop()
             self.anim.setStartValue(0.0)
             self.anim.setEndValue(1.0)
-            self.anim.setDuration(280)
+            self.anim.setDuration(600)
             self.anim.start()
         else:
             self.progress = 1.0
@@ -591,116 +615,225 @@ class SeriesChart(QWidget):
         self.progress = float(value)
         self.update()
 
+    def _frame(self):
+        return self.PAD, self.width() - self.PAD, 14, self.height() - 26
+
+    def x_of(self, index):
+        left, right, _, _ = self._frame()
+        return left + (index + .5) * (right - left) / max(len(self.points), 1)
+
+    def y_of(self, value, peak):
+        _, _, top, bottom = self._frame()
+        return bottom - (bottom - top) * value / peak * self.progress if peak else bottom
+
+    def _path(self, xs, ys, smooth):
+        path = QPainterPath(QPointF(xs[0], ys[0]))
+        for i in range(1, len(xs)):
+            if smooth:  # Catmull-Rom through the points, as cubic Beziers
+                x0, y0 = xs[max(i - 2, 0)], ys[max(i - 2, 0)]
+                x3, y3 = xs[min(i + 1, len(xs) - 1)], ys[min(i + 1, len(xs) - 1)]
+                c1 = QPointF(xs[i - 1] + (xs[i] - x0) / 6, ys[i - 1] + (ys[i] - y0) / 6)
+                c2 = QPointF(xs[i] - (x3 - xs[i - 1]) / 6, ys[i] - (y3 - ys[i - 1]) / 6)
+                path.cubicTo(c1, c2, QPointF(xs[i], ys[i]))
+            else:
+                path.lineTo(xs[i], ys[i])
+        return path
+
     def paintEvent(self, event):
-        c = theme.CURRENT.c
+        t = theme.CURRENT
+        c = t.c
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        width, height = self.width(), self.height()
+        left, right, top, bottom = self._frame()
         peak = max((value for _, value in self.points), default=0)
         if not peak:
             painter.setPen(QColor(c["on_surface_variant"]))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.empty)
             return
-        top, bottom = 12, height - 24
         count = len(self.points)
-        slot = width / count
-
-        def y_of(value):
-            return bottom - (bottom - top) * value / peak * self.progress
-
+        slot = (right - left) / count
+        grid = QPen(theme.layer(c["outline_variant"], .7), 1, Qt.PenStyle.DashLine)
+        painter.setPen(grid)
+        for share in (.25, .5, .75):
+            y = bottom - (bottom - top) * share
+            painter.drawLine(QPointF(left, y), QPointF(right, y))
         painter.setPen(QPen(QColor(c["outline_variant"]), 1))
-        painter.drawLine(QPointF(0, bottom), QPointF(width, bottom))
-        color = QColor(c["primary"])
-        if self.style == "bar":
+        painter.drawLine(QPointF(left, bottom), QPointF(right, bottom))
+        if 0 <= self.hover < count:
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(color)
-            bar = max(3.0, slot * .68)
-            for index, (_, value) in enumerate(self.points):
-                if value <= 0:
+            painter.setBrush(theme.layer(c["on_surface"], .06))
+            painter.drawRoundedRect(QRectF(left + self.hover * slot, top - 4, slot, bottom - top + 4), t.r["sm"], t.r["sm"])
+        color = QColor(c["primary"])
+        xs = [self.x_of(i) for i in range(count)]
+        ys = [self.y_of(value, peak) for _, value in self.points]
+        if self.style == "bar":
+            bar = max(3.0, slot * .64)
+            radius = min(bar / 2, t.r["sm"])
+            painter.setPen(Qt.PenStyle.NoPen)
+            for index, (x, y) in enumerate(zip(xs, ys)):
+                if self.points[index][1] <= 0:
                     continue
-                height_px = max(2.0, bottom - y_of(value))
-                x = index * slot + (slot - bar) / 2
-                painter.drawRoundedRect(QRectF(x, bottom - height_px, bar, height_px), min(bar / 2, 6), min(bar / 2, 6))
+                height_px = max(2.0, bottom - y)
+                rect = QRectF(x - bar / 2, bottom - height_px, bar, height_px)
+                corner = min(radius, height_px / 2)
+                painter.setBrush(color if index == self.hover or self.hover < 0 else theme.layer(c["primary"], .75))
+                painter.drawRoundedRect(rect, corner, corner)
+                painter.drawRect(QRectF(rect.left(), rect.bottom() - corner, bar, corner))  # rounded top, flat base
         else:
-            xs = [(index + .5) * slot for index in range(count)]
-            path = QPainterPath(QPointF(xs[0], y_of(self.points[0][1])))
-            for x, (_, value) in zip(xs[1:], self.points[1:]):
-                path.lineTo(x, y_of(value))
+            path = self._path(xs, ys, self.style in ("smooth", "area"))
             if self.style == "area":
                 area = QPainterPath(path)
                 area.lineTo(xs[-1], bottom)
                 area.lineTo(xs[0], bottom)
                 area.closeSubpath()
-                fill = QColor(color)
-                fill.setAlphaF(.25)
-                painter.fillPath(area, fill)
-            painter.setPen(QPen(color, 2.5))
+                gradient = QLinearGradient(0, top, 0, bottom)
+                gradient.setColorAt(0, theme.layer(c["primary"], .35))
+                gradient.setColorAt(1, theme.layer(c["primary"], 0))
+                painter.fillPath(area, gradient)
+            pen = QPen(color, 2.5)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            painter.setPen(pen)
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPath(path)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(color)
-            for x, (_, value) in zip(xs, self.points):
-                painter.drawEllipse(QPointF(x, y_of(value)), 3, 3)
-        painter.setPen(QColor(c["on_surface_variant"]))
-        step = max(1, count // 6)
-        for index in range(0, count, step):
-            left = min(max((index + .5) * slot - 40, 0), max(width - 80, 0))  # keep edge labels inside the chart
-            painter.drawText(QRectF(left, bottom + 4, 80, 18), Qt.AlignmentFlag.AlignCenter, self.points[index][0])
+            if 0 <= self.hover < count:  # crosshair and the hovered point
+                painter.setPen(QPen(theme.layer(c["on_surface"], .45), 1, Qt.PenStyle.DashLine))
+                painter.drawLine(QPointF(xs[self.hover], top), QPointF(xs[self.hover], bottom))
+                painter.setPen(QPen(QColor(c["surface_container_high"]), 2))
+                painter.setBrush(color)
+                painter.drawEllipse(QPointF(xs[self.hover], ys[self.hover]), 5, 5)
+        self._labels(painter, xs, bottom)
 
-    def mouseMoveEvent(self, event):
-        if not self.points:
+    def _labels(self, painter, xs, bottom):
+        """Evenly spaced, thinned so they never overlap; the last one stays inside the chart."""
+        painter.setPen(QColor(theme.CURRENT.c["on_surface_variant"]))
+        fm = painter.fontMetrics()
+        widest = max(fm.horizontalAdvance(label) for label, _ in self.points) + 12
+        count = len(self.points)
+        room = max(self.width() - 2 * self.PAD, 1)
+        step = max(1, math.ceil(count * widest / room))
+        shown = list(range(0, count, step))
+        if shown[-1] != count - 1:
+            if xs[count - 1] - xs[shown[-1]] < widest:
+                shown[-1] = count - 1  # swap the crowded one for the last label
+            else:
+                shown.append(count - 1)
+        for index in shown:
+            text = self.points[index][0]
+            width = fm.horizontalAdvance(text)
+            x = min(max(xs[index] - width / 2, 0), self.width() - width)
+            painter.drawText(QRectF(x, bottom + 6, width + 1, 18), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, text)
+
+    def _show(self, index):
+        if not (0 <= index < len(self.points)):
             return
-        index = min(len(self.points) - 1, max(0, int(event.position().x() / (self.width() / len(self.points)))))
+        peak = max((value for _, value in self.points), default=0)
+        label, value = self.points[index]
+        lines = [label, f"{self.fmt(value)} chests"] + list(self.details[index] if index < len(self.details) else [])
+        x, y = self.x_of(index), self.y_of(value, peak)
+        self.setAccessibleDescription(" · ".join(lines))
+        show_tip(self, QRectF(x - 8, y - 8, 16, 16), lines)
+
+    def _set_hover(self, index):
         if index != self.hover:
             self.hover = index
-            text, value = self.points[index]
-            QToolTip.showText(event.globalPosition().toPoint(), f"{text}: {self.fmt(value)}", self)
+            self.update()
+        self._show(index)
+
+    def mouseMoveEvent(self, event):
+        if self.points:
+            left, right, _, _ = self._frame()
+            index = int((event.position().x() - left) / ((right - left) / len(self.points)))
+            self._set_hover(min(max(index, 0), len(self.points) - 1))
 
     def leaveEvent(self, event):
+        if not self.hasFocus():
+            self.hover = -1
+            self.update()
+        hide_tip(self)
+
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        if self.points:
+            self._set_hover(self.hover if self.hover >= 0 else len(self.points) - 1)
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
         self.hover = -1
-        QToolTip.hideText()
-        super().leaveEvent(event)
+        self.update()
+        hide_tip(self)
+
+    def keyPressEvent(self, event):
+        moves = {Qt.Key.Key_Left: -1, Qt.Key.Key_Right: 1}
+        if self.points and event.key() in moves:
+            self._set_hover(min(max(self.hover + moves[event.key()], 0), len(self.points) - 1))
+        elif self.points and event.key() in (Qt.Key.Key_Home, Qt.Key.Key_End):
+            self._set_hover(0 if event.key() == Qt.Key.Key_Home else len(self.points) - 1)
+        else:
+            super().keyPressEvent(event)
 
 
 class Donut(QWidget):
-    """Share of each chest type, with a total in the middle."""
+    """Share of each chest type: rounded arc segments with small gaps, the total in the middle.
+
+    Hover a segment, or focus the chart and use Left/Right, to read its type, count and share.
+    """
 
     def __init__(self):
         super().__init__()
-        self.slices, self.center, self.caption, self.progress = [], "", "", 1.0
+        self.slices, self.center, self.caption, self.progress, self.hover = [], "", "", 1.0, -1
+        self.fmt = str
         self.setMinimumSize(150, 150)
+        self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
-    def set_slices(self, slices, center, caption):
+    def set_slices(self, slices, center, caption, fmt=str):
         changed = list(slices) != self.slices
-        self.slices, self.center, self.caption = list(slices), center, caption
+        self.slices, self.center, self.caption, self.fmt = list(slices), center, caption, fmt
         self.setAccessibleDescription(f"{center} {caption}")
         if changed:
+            self.hover = -1
             draw_in(self)  # segments sweep round when the numbers change
         self.update()
+
+    def _geometry(self):
+        side = min(self.width(), self.height()) - 8
+        thickness = max(10.0, side * .16)
+        rect = QRectF((self.width() - side) / 2, (self.height() - side) / 2, side, side)
+        return rect.adjusted(thickness / 2, thickness / 2, -thickness / 2, -thickness / 2), thickness, side
+
+    def _spans(self):
+        """(start, span) in degrees, clockwise from 12 o'clock, with a small gap between segments."""
+        total = sum(value for _, value, _ in self.slices)
+        gap = 4.0 if len(self.slices) > 1 else 0.0
+        result, angle = [], 90.0
+        for _, value, _ in self.slices:
+            span = 360.0 * value / total if total else 0.0
+            result.append((angle - gap / 2, -(max(span - gap, .5))))
+            angle -= span
+        return result
 
     def paintEvent(self, event):
         c = theme.CURRENT.c
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        side = min(self.width(), self.height()) - 8
-        rect = QRectF((self.width() - side) / 2, (self.height() - side) / 2, side, side)
-        total = sum(value for _, value, _ in self.slices)
-        if total:
-            angle = 90 * 16
-            for _, value, color in self.slices:
-                span = round(-360 * 16 * value / total * self.progress)
-                painter.setPen(QPen(QColor(c["surface_container_high"]), 2))
-                painter.setBrush(QColor(color))
-                painter.drawPie(rect, angle, span)
-                angle += span
-        else:
-            painter.setPen(QPen(QColor(c["outline_variant"]), 2))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawEllipse(rect)
-        hole = rect.adjusted(side * .2, side * .2, -side * .2, -side * .2)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(c["surface_container_high"]))
-        painter.drawEllipse(hole)
+        ring, thickness, side = self._geometry()
+        painter.setPen(QPen(QColor(c["surface_container_highest"]), thickness))
+        painter.drawArc(ring, 0, 360 * 16)
+        radius = ring.width() / 2
+        cap = math.degrees(thickness / 2 / radius) if radius else 0  # round caps reach past the arc's ends
+        for index, ((start, span), (_, value, color)) in enumerate(zip(self._spans(), self.slices)):
+            span *= self.progress
+            if not value or not span:
+                continue
+            width = thickness + (5 if index == self.hover else 0)
+            drawn = span + 2 * cap if abs(span) > 2 * cap else span
+            pen = QPen(QColor(color), width)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap if abs(span) > 2 * cap else Qt.PenCapStyle.FlatCap)
+            painter.setPen(pen)
+            begin = start - cap if abs(span) > 2 * cap else start
+            painter.drawArc(ring, round(begin * 16), round(drawn * 16))
+        hole = ring.adjusted(thickness * .7, thickness * .7, -thickness * .7, -thickness * .7)
         top = QRectF(hole.left(), hole.top(), hole.width(), hole.height() * .56)
         bottom = QRectF(hole.left(), hole.top() + hole.height() * .56, hole.width(), hole.height() * .44)
         font = QFont(painter.font())
@@ -708,36 +841,114 @@ class Donut(QWidget):
         font.setWeight(QFont.Weight.DemiBold)
         painter.setFont(font)
         painter.setPen(QColor(c["on_surface"]))
-        painter.drawText(top, Qt.AlignmentFlag.AlignCenter, self.center)
+        painter.drawText(top, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom, self.center)
         font.setPixelSize(max(10, round(side * .075)))
         font.setWeight(QFont.Weight.Normal)
         painter.setFont(font)
         painter.setPen(QColor(c["on_surface_variant"]))
         painter.drawText(bottom, Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, self.caption)
 
+    def _index_at(self, point):
+        ring, thickness, _ = self._geometry()
+        dx, dy = point.x() - ring.center().x(), ring.center().y() - point.y()
+        distance = math.hypot(dx, dy)
+        if abs(distance - ring.width() / 2) > thickness / 2 + 4:
+            return -1
+        angle = math.degrees(math.atan2(dy, dx))
+        for index, (start, span) in enumerate(self._spans()):
+            offset = (start - angle) % 360
+            if offset <= -span + 4:
+                return index
+        return -1
+
+    def _show(self, index):
+        if not (0 <= index < len(self.slices)):
+            hide_tip(self)
+            return
+        name, value, _ = self.slices[index]
+        total = sum(v for _, v, _ in self.slices) or 1
+        lines = [name, f"{self.fmt(value)} chests", f"{value / total:.0%} of {self.fmt(total)}"]
+        self.setAccessibleDescription(" · ".join(lines))
+        ring, _, _ = self._geometry()
+        start, span = self._spans()[index]
+        middle = math.radians(start + span / 2)
+        point = QPointF(ring.center().x() + math.cos(middle) * ring.width() / 2,
+                        ring.center().y() - math.sin(middle) * ring.width() / 2)
+        show_tip(self, QRectF(point.x() - 6, point.y() - 6, 12, 12), lines)
+
+    def mouseMoveEvent(self, event):
+        index = self._index_at(event.position())
+        if index != self.hover:
+            self.hover = index
+            self.update()
+        self._show(index)
+
+    def leaveEvent(self, event):
+        self.hover = -1
+        self.update()
+        hide_tip(self)
+
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        if self.slices:
+            self.hover = max(self.hover, 0)
+            self.update()
+            self._show(self.hover)
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        self.hover = -1
+        self.update()
+        hide_tip(self)
+
+    def keyPressEvent(self, event):
+        if self.slices and event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+            self.hover = (self.hover + (1 if event.key() == Qt.Key.Key_Right else -1)) % len(self.slices)
+            self.update()
+            self._show(self.hover)
+        else:
+            super().keyPressEvent(event)
+
 
 class Heatmap(QWidget):
-    """Chests by weekday (rows) and hour (columns), darker for more."""
+    """Chests by weekday (rows) and hour (columns). Darker means more; an empty cell keeps the track colour.
+
+    Hover a cell, or focus the map and use the arrow keys, to read it. A legend runs from less to more.
+    """
     DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
-    LEFT, TOP = 40, 20
+    NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+    LEFT, TOP, LEGEND = 40, 20, 26
 
     def __init__(self):
         super().__init__()
-        self.grid, self.fmt = [[0] * 24 for _ in range(7)], str
-        self.setMinimumHeight(170)
+        self.grid, self.matches, self.fmt = [[0] * 24 for _ in range(7)], None, str
+        self.hover = None
+        self.setMinimumHeight(190)
         self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setAccessibleName("Chests by weekday and hour")
 
-    def set_grid(self, grid, fmt):
-        self.grid, self.fmt = grid, fmt
+    def set_grid(self, grid, fmt, matches=None):
+        self.grid, self.fmt, self.matches = grid, fmt, matches
         self.setAccessibleDescription(f"{fmt(sum(map(sum, grid)))} chests in total")
         self.update()
 
     def _sizes(self):
-        return (self.width() - self.LEFT) / 24, (self.height() - self.TOP) / 7
+        return (self.width() - self.LEFT) / 24, (self.height() - self.TOP - self.LEGEND) / 7
+
+    def cell_rect(self, day, hour):
+        cell_w, cell_h = self._sizes()
+        return QRectF(self.LEFT + hour * cell_w + 1.5, self.TOP + day * cell_h + 1.5, cell_w - 3, cell_h - 3)
+
+    def shade(self, value, peak):
+        c = theme.CURRENT.c
+        if not value or not peak:
+            return QColor(c["surface_container_highest"])
+        return QColor(theme.mix(c["surface_container_highest"], c["primary"], .25 + .75 * math.sqrt(value / peak)))
 
     def paintEvent(self, event):
-        c = theme.CURRENT.c
+        t = theme.CURRENT
+        c = t.c
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         cell_w, cell_h = self._sizes()
@@ -749,66 +960,150 @@ class Heatmap(QWidget):
         for hour in (0, 6, 12, 18):
             painter.drawText(QRectF(self.LEFT + hour * cell_w, 0, cell_w * 6, self.TOP),
                              Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, f"{hour:02d}:00")
-        painter.setPen(Qt.PenStyle.NoPen)
+        radius = min(t.r["xs"] + 1, cell_w / 3, cell_h / 3)
         for day in range(7):
             for hour in range(24):
-                value = self.grid[day][hour]
-                shade = theme.mix(c["surface_container_highest"], c["primary"], .15 + .85 * value / peak) if value and peak else c["surface_container_highest"]
-                painter.setBrush(QColor(shade))
-                painter.drawRoundedRect(QRectF(self.LEFT + hour * cell_w + 2, self.TOP + day * cell_h + 2,
-                                               cell_w - 4, cell_h - 4), 4, 4)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(self.shade(self.grid[day][hour], peak))
+                painter.drawRoundedRect(self.cell_rect(day, hour), radius, radius)
+        if self.hover:
+            painter.setPen(QPen(QColor(c["on_surface"]), 2))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(self.cell_rect(*self.hover).adjusted(-1, -1, 1, 1), radius + 1, radius + 1)
+        # legend: less -> more
+        y = self.height() - self.LEGEND + 8
+        swatch = 14
+        painter.setPen(QColor(c["on_surface_variant"]))
+        fm = painter.fontMetrics()
+        x = self.width() - 5 * (swatch + 3) - fm.horizontalAdvance("More") - 8
+        painter.drawText(QRectF(x - fm.horizontalAdvance("Less") - 8, y - 2, fm.horizontalAdvance("Less") + 4, swatch + 4),
+                         Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, "Less")
+        painter.setPen(Qt.PenStyle.NoPen)
+        for step in range(5):
+            painter.setBrush(self.shade(step, 4) if step else self.shade(0, 4))
+            painter.drawRoundedRect(QRectF(x + step * (swatch + 3), y, swatch, swatch), radius, radius)
+        painter.setPen(QColor(c["on_surface_variant"]))
+        painter.drawText(QRectF(x + 5 * (swatch + 3) + 4, y - 2, fm.horizontalAdvance("More") + 4, swatch + 4),
+                         Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, "More")
+
+    def _show(self):
+        if not self.hover:
+            hide_tip(self)
+            return
+        day, hour = self.hover
+        value = self.grid[day][hour]
+        played = self.matches[day][hour] if self.matches else 0
+        head = f"{self.NAMES[day]}, {hour:02d}:00"
+        body = (f"{self.fmt(value)} chests · {played} match{'es' if played != 1 else ''}" if value or played
+                else "No matches")
+        self.setAccessibleDescription(f"{head} · {body}")
+        show_tip(self, self.cell_rect(day, hour), [head, body])
 
     def mouseMoveEvent(self, event):
         cell_w, cell_h = self._sizes()
-        hour = int((event.position().x() - self.LEFT) // cell_w) if cell_w else -1
-        day = int((event.position().y() - self.TOP) // cell_h) if cell_h else -1
-        if 0 <= day < 7 and 0 <= hour < 24:
-            QToolTip.showText(event.globalPosition().toPoint(),
-                              f"{self.DAYS[day]} {hour:02d}:00 · {self.fmt(self.grid[day][hour])} chests", self)
+        hour = int((event.position().x() - self.LEFT) // cell_w) if cell_w > 0 else -1
+        day = int((event.position().y() - self.TOP) // cell_h) if cell_h > 0 else -1
+        cell = (day, hour) if 0 <= day < 7 and 0 <= hour < 24 else None
+        if cell != self.hover:
+            self.hover = cell
+            self.update()
+        self._show()
+
+    def leaveEvent(self, event):
+        if not self.hasFocus():
+            self.hover = None
+            self.update()
+        hide_tip(self)
+
+    def focusInEvent(self, event):
+        super().focusInEvent(event)
+        self.hover = self.hover or (0, 12)
+        self.update()
+        self._show()
+
+    def focusOutEvent(self, event):
+        super().focusOutEvent(event)
+        self.hover = None
+        self.update()
+        hide_tip(self)
+
+    def keyPressEvent(self, event):
+        moves = {Qt.Key.Key_Left: (0, -1), Qt.Key.Key_Right: (0, 1), Qt.Key.Key_Up: (-1, 0), Qt.Key.Key_Down: (1, 0)}
+        if event.key() in moves:
+            day, hour = self.hover or (0, 12)
+            dd, dh = moves[event.key()]
+            self.hover = (min(max(day + dd, 0), 6), min(max(hour + dh, 0), 23))
+            self.update()
+            self._show()
         else:
-            QToolTip.hideText()
+            super().keyPressEvent(event)
 
 
 class Sparkline(QWidget):
-    """A small line of recent values with a soft fill."""
+    """A small line of recent values with a soft fill. Hover it to read a point."""
 
     def __init__(self):
         super().__init__()
-        self.values, self.progress = [], 1.0
+        self.values, self.labels, self.progress, self.hover = [], [], 1.0, -1
         self.setFixedHeight(40)
+        self.setMouseTracking(True)
 
-    def set_values(self, values):
+    def set_values(self, values, labels=None):
+        self.labels = list(labels or [])
         if list(values) != self.values:
             self.values = list(values)
             draw_in(self, 900)  # the line draws from left to right
 
+    def _points(self):
+        values, peak = self.values, max(self.values, default=0)
+        width, height = self.width(), self.height()
+        step = (width - 8) / (len(values) - 1)
+        return [QPointF(4 + i * step, height - 5 - (height - 10) * v / peak) for i, v in enumerate(values)]
+
     def paintEvent(self, event):
         c = theme.CURRENT.c
-        values, peak = self.values, max(self.values, default=0)
-        if len(values) < 2 or not peak:
+        if len(self.values) < 2 or not max(self.values):
             return
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         width, height = self.width(), self.height()
         painter.setClipRect(QRectF(0, 0, width * self.progress, height))
-        step = width / (len(values) - 1)
-
-        def y_of(value):
-            return height - 4 - (height - 8) * value / peak
-
-        path = QPainterPath(QPointF(0, y_of(values[0])))
-        for index, value in enumerate(values[1:], 1):
-            path.lineTo(index * step, y_of(value))
+        points = self._points()
+        path = QPainterPath(points[0])
+        for point in points[1:]:
+            path.lineTo(point)
         fill = QPainterPath(path)
-        fill.lineTo(width, height)
-        fill.lineTo(0, height)
+        fill.lineTo(points[-1].x(), height)
+        fill.lineTo(points[0].x(), height)
         fill.closeSubpath()
-        area = QColor(c["primary"])
-        area.setAlphaF(.18)
-        painter.fillPath(fill, area)
-        painter.setPen(QPen(QColor(c["primary"]), 2))
-        painter.setBrush(Qt.BrushStyle.NoBrush)
+        gradient = QLinearGradient(0, 0, 0, height)
+        gradient.setColorAt(0, theme.layer(c["primary"], .28))
+        gradient.setColorAt(1, theme.layer(c["primary"], 0))
+        painter.fillPath(fill, gradient)
+        pen = QPen(QColor(c["primary"]), 2)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
         painter.drawPath(path)
+        if 0 <= self.hover < len(points):
+            painter.setBrush(QColor(c["primary"]))
+            painter.setPen(QPen(QColor(c["surface_container_high"]), 2))
+            painter.drawEllipse(points[self.hover], 4, 4)
+
+    def mouseMoveEvent(self, event):
+        if len(self.values) < 2:
+            return
+        points = self._points()
+        index = min(range(len(points)), key=lambda i: abs(points[i].x() - event.position().x()))
+        self.hover = index
+        self.update()
+        name = self.labels[index] if index < len(self.labels) else ""
+        show_tip(self, QRectF(points[index].x() - 5, points[index].y() - 5, 10, 10), [name, f"{self.values[index]:,} chests"])
+
+    def leaveEvent(self, event):
+        self.hover = -1
+        self.update()
+        hide_tip(self)
 
 
 class Timeline(QWidget):
@@ -866,6 +1161,10 @@ class Timeline(QWidget):
         x = event.position().x()
         nearest = min(self.marks, key=lambda mark: abs(self._x(mark[0]) - x), default=None)
         if nearest and abs(self._x(nearest[0]) - x) <= 6:
-            QToolTip.showText(event.globalPosition().toPoint(), f"{elapsed(nearest[0])} · {nearest[2]}", self)
+            mark_x = self._x(nearest[0])
+            show_tip(self, QRectF(mark_x - 4, 12, 8, self.height() - 34), [elapsed(nearest[0]), nearest[2]])
         else:
-            QToolTip.hideText()
+            hide_tip(self)
+
+    def leaveEvent(self, event):
+        hide_tip(self)

@@ -9,25 +9,26 @@ import sys
 import threading
 import time
 
-from PySide6.QtCore import (QAbstractTableModel, QEasingCurve, QEvent, QModelIndex, QParallelAnimationGroup, QPoint, QObject, QPropertyAnimation, QRectF,
-                            QSortFilterProxyModel, Qt, QTimer, QUrl, Signal)
+from PySide6.QtCore import (QAbstractTableModel, QEvent, QModelIndex, QParallelAnimationGroup, QPoint, QObject, QPropertyAnimation, QRectF,
+                            QSortFilterProxyModel, Qt, QTimer, QUrl, QVariantAnimation, Signal)
 from PySide6.QtGui import (QColor, QDesktopServices, QFont, QGuiApplication, QImage, QKeySequence, QPainter, QPen,
                            QShortcut)
-from PySide6.QtWidgets import (QAbstractButton, QAbstractItemView, QApplication, QButtonGroup, QComboBox, QDialog,
+from PySide6.QtWidgets import (QAbstractButton, QAbstractItemView, QApplication, QButtonGroup, QDialog,
                                QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGraphicsOpacityEffect, QGridLayout,
                                QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QProgressBar, QPushButton,
-                               QScrollArea, QSlider, QSpinBox, QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout,
+                               QScrollArea, QSplitter, QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout,
                                QWidget)
 
-from . import __version__, features, live, replay_reader, stats, theme
+from . import __version__, controls, features, live, replay_reader, stats, theme
+from .controls import Stepper, select, slider
 from .config import Config, data_dir
 from .hotkeys import Hotkeys
 from .panels import STAT_TITLES, clock, make_panel, widget_title
 from .prefs import RANGES, WIDGETS, Prefs, default_layout, elapsed, number, when
 from .store import EVENT_FIELDS, Store
 from .teammates import TeammatesPanel
-from .widgets import (EMPHASIZED, Card, DashGrid, Segmented, Snackbar, Switch, Timeline, bar_rows, clear_layout, fill, icon_button,
-                      autofit, fit_columns, label, make_table, retone, shrinkable,
+from .widgets import (EMPHASIZED, Card, DashGrid, FilterBar, Segmented, Snackbar, Switch, Timeline, bar_rows, clear_layout, fill, icon_button,
+                      autofit, fit_columns, label, make_table, retone,
                       wrapped)
 
 NAV = (("Overview", "dashboard"), ("Matches", "sports_esports"), ("Teammates", "groups"), ("Openings", "inventory_2"),
@@ -37,6 +38,9 @@ STATS_ORDER = ("health", "trend", "types", "modes", "heat", "records", "sessions
     f"stat:{key}" for key in STAT_TITLES)
 RELEASES = "https://github.com/femboypuppy/LootLedger/releases"
 WHATS_NEW = (
+    "Tooltips work everywhere: hover or tab to a chart point, heatmap cell or donut segment to read it.",
+    "Rounded Material controls throughout: segmented buttons, steppers with presets for goals, selects and menus.",
+    "Charts: rounded bars, a Smooth line style, a heatmap legend, and labels that never overlap.",
     "The current match is tracked live: you see when a match is live and how long it has run, and its chests "
     "are counted seconds after it ends (Fortnite encrypts the replay until then).",
     "A pop-out counter you can drag, resize, fade and click through, with its own shortcut.",
@@ -47,8 +51,7 @@ WHATS_NEW = (
 )
 REPLAY_KEYS = ("replay_folder", "count_broken", "scan_seconds", "auto_watch")
 RANGE_CHOICES = tuple((days, "All time" if days == 0 else f"Last {days} days") for days in RANGES)
-SEEDS = {"Amber": "#e8b04f", "Violet": "#a98aee", "Blue": "#5b9cf0",
-         "Teal": "#3fb8a0", "Rose": "#e8718f", "Green": "#7cc46a"}
+SEEDS = theme.SEEDS  # accent presets live with the other colours
 
 
 def source_row(proxy, model, index):
@@ -101,6 +104,14 @@ class NavButton(QAbstractButton):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip(title)
         self.setAccessibleName(title)
+        self.grow = 1.0
+        self.grow_anim = QVariantAnimation(self)  # the active pill grows from the centre (M3 rail indicator)
+        self.grow_anim.setDuration(250)
+        self.grow_anim.setStartValue(.3)
+        self.grow_anim.setEndValue(1.0)
+        self.grow_anim.setEasingCurve(EMPHASIZED)
+        self.grow_anim.valueChanged.connect(lambda v: (setattr(self, "grow", v), self.update()))
+        self.toggled.connect(lambda on: self.grow_anim.start() if on and theme.CURRENT.full_motion else None)
 
     def paintEvent(self, event):
         t = theme.CURRENT
@@ -109,14 +120,15 @@ class NavButton(QAbstractButton):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         pill = QRectF((self.width() - 56) / 2, 4, 56, 32)
+        indicator = QRectF(pill.center().x() - 28 * self.grow, 4, 56 * self.grow, 32) if on else pill
         if on or self.underMouse():
             painter.setPen(Qt.PenStyle.NoPen)
             painter.setBrush(QColor(c["secondary_container"] if on else theme.mix(c["surface"], c["on_surface"], .08)))
-            painter.drawRoundedRect(pill, 16, 16)
+            painter.drawRoundedRect(indicator, theme.pill(pill.height()), theme.pill(pill.height()))
         if self.hasFocus():
             painter.setPen(QPen(QColor(c["primary"]), 2))
             painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawRoundedRect(pill.adjusted(-2, -2, 2, 2), 18, 18)
+            painter.drawRoundedRect(pill.adjusted(-2, -2, 2, 2), theme.pill(pill.height() + 4), theme.pill(pill.height() + 4))
         icon_font = QFont(t.family)
         icon_font.setPixelSize(t.px["icon"])
         painter.setFont(icon_font)
@@ -423,6 +435,7 @@ class MainWindow(QMainWindow):
         self.editing = False
         self._snap, self._filters_ready = None, False
         self.icon_family = theme.load_icon_font()
+        controls.install(QApplication.instance())  # themed tooltips and rounded popups app-wide
         self.scanner = Scanner(self.store.path)
         self.scanner.progress.connect(self.on_scan_progress)
         self.scanner.finished.connect(self.on_scan_finished)
@@ -621,30 +634,20 @@ class MainWindow(QMainWindow):
 
     def build_matches(self):
         layout, self.sub_matches = self.page("Matches", "Matches read from your replays. Select one to see its breakdown and timeline.", scroll=False)
-        bar = QHBoxLayout()
-        bar.setSpacing(theme.CURRENT.sp["s"])
         self.match_search = QLineEdit()
         self.match_search.setPlaceholderText("Search mode, date, tag or note")
         self.match_search.setClearButtonEnabled(True)
-        self.match_range = QComboBox()
-        for days, text in RANGE_CHOICES:
-            self.match_range.addItem(text, days)
+        self.match_range = select(((text, days) for days, text in RANGE_CHOICES), "Date range")
         self.match_range.setCurrentIndex(max(0, self.match_range.findData(self.prefs.default_range)))
-        self.match_mode = QComboBox()
-        self.match_type = QComboBox()
-        self.match_min = QSpinBox()
-        self.match_min.setRange(0, 999)
-        self.match_min.setSpecialValueText("Any count")
-        self.match_min.setPrefix("At least ")
-        bar.addWidget(self.match_search, 1)
-        shrinkable(self.match_range, self.match_mode, self.match_type, self.match_min)
+        self.match_mode = select(tip="Game mode")
+        self.match_type = select(tip="Chest type")
+        self.match_min = Stepper(0, 999, 0, special="Any count", prefix="At least ", tip="Minimum chests")
         self.match_favorites = QPushButton("★ Favourites")
         self.match_favorites.setObjectName("chip")
         self.match_favorites.setCheckable(True)
         self.match_favorites.toggled.connect(lambda _: self.apply_match_filters())
-        for widget in (self.match_range, self.match_mode, self.match_type, self.match_min, self.match_favorites):
-            bar.addWidget(widget)
-        layout.addLayout(bar)
+        layout.addWidget(FilterBar(self.match_search, (self.match_range, self.match_mode, self.match_type,
+                                                      self.match_min, self.match_favorites)))
         self.match_count = label("", "muted")
         layout.addWidget(self.match_count)
         self.match_empty = label("No matches yet. Turn on Record Replays in Fortnite, finish a match, and it appears here.", "muted")
@@ -706,21 +709,13 @@ class MainWindow(QMainWindow):
         self.open_timeline = Timeline("Choose a match to see when its openings happened")
         self.open_timeline.setMinimumHeight(96)
         layout.addWidget(self.open_timeline)
-        bar = QHBoxLayout()
-        bar.setSpacing(theme.CURRENT.sp["s"])
         self.entry_search = QLineEdit()
         self.entry_search.setPlaceholderText("Search type or details")
         self.entry_search.setClearButtonEnabled(True)
-        self.open_match = QComboBox()
-        self.entry_type = QComboBox()
-        self.entry_status = QComboBox()
-        shrinkable(self.open_match, self.entry_type, self.entry_status)
-        for text, data in (("Counted", "confirmed"), ("Removed", "undone"), ("All statuses", "")):
-            self.entry_status.addItem(text, data)
-        bar.addWidget(self.entry_search, 1)
-        for widget in (self.open_match, self.entry_type, self.entry_status):
-            bar.addWidget(widget)
-        layout.addLayout(bar)
+        self.open_match = select(tip="Match")
+        self.entry_type = select(tip="Chest type")
+        self.entry_status = select((("Counted", "confirmed"), ("Removed", "undone"), ("All statuses", "")), "Status")
+        layout.addWidget(FilterBar(self.entry_search, (self.open_match, self.entry_type, self.entry_status)))
         self.entry_empty = label("No openings yet. Play a match with Record Replays on.", "muted")
         layout.addWidget(self.entry_empty)
         panel = QFrame()
@@ -820,7 +815,7 @@ class MainWindow(QMainWindow):
         for name, color in SEEDS.items():
             swatch = QPushButton()
             ring = c["on_surface"] if color.lower() == p.seed.lower() else c["surface_container_high"]
-            swatch.setStyleSheet(f"QPushButton {{ background: {color}; border: 3px solid {ring}; border-radius: 14px; "
+            swatch.setStyleSheet(f"QPushButton {{ background: {color}; border: 3px solid {ring}; border-radius: {theme.pill(28)}px; "
                                  "min-width: 22px; max-width: 22px; min-height: 22px; max-height: 22px; padding: 0px; }}")
             swatch.setToolTip(name)
             swatch.setAccessibleName(f"{name} accent colour")
@@ -903,11 +898,7 @@ class MainWindow(QMainWindow):
         self.auto_switch = Switch(self.config.auto_watch, "Check for replays automatically")
         self.auto_switch.toggled.connect(lambda on: self.safe(lambda: self.update_config(auto_watch=bool(on))))
         self.setting_row(grid, "Watch for new replays", self.auto_switch, "Finished matches are added on their own.")
-        self.interval = QSpinBox()
-        self.interval.setRange(5, 600)
-        self.interval.setSuffix(" s")
-        self.interval.setValue(self.config.scan_seconds)
-        self.interval.setMaximumWidth(110)
+        self.interval = Stepper(5, 600, self.config.scan_seconds, step=5, suffix=" s", tip="Replay check interval")
         self.interval.valueChanged.connect(lambda value: self.safe(lambda: self.update_config(scan_seconds=value)))
         self.setting_row(grid, "Check every", self.interval)
         self.broken_switch = Switch(self.config.count_broken, "Count chests you broke open")
@@ -918,11 +909,7 @@ class MainWindow(QMainWindow):
                          "Re-reads all replays Fortnite still keeps. Your corrections are kept.")
 
     def slider(self, name, low, high, tip):
-        control = QSlider(Qt.Orientation.Horizontal)
-        control.setRange(low, high)
-        control.setValue(getattr(self.prefs, name))
-        control.setMinimumWidth(180)
-        control.setAccessibleName(tip)
+        control = slider(low, high, getattr(self.prefs, name), tip)
         control.valueChanged.connect(lambda value: self.set_pref(name, value))
         return control
 
@@ -958,15 +945,14 @@ class MainWindow(QMainWindow):
 
     def goals_card(self):
         grid = self.settings_card("Goals", "flag")
-        for name, title, top in (("goal_daily", "Chests per day", 10000), ("goal_weekly", "Chests per week", 100000)):
-            spin = QSpinBox()
-            spin.setRange(0, top)
-            spin.setSpecialValueText("No goal")
-            spin.setValue(getattr(self.prefs, name))
-            spin.setMaximumWidth(140)
-            spin.setAccessibleName(title + " goal")
-            spin.valueChanged.connect(lambda value, n=name: self.set_pref(n, value))
-            self.setting_row(grid, title, spin)
+        for name, title, top, presets, hint in (
+                ("goal_daily", "Daily goal", 10000, (10, 25, 50, 100), "Chests per day. Type a number or pick a preset."),
+                ("goal_weekly", "Weekly goal", 100000, (50, 100, 250, 500), "Chests per week, Monday to Sunday.")):
+            stepper = Stepper(0, top, getattr(self.prefs, name), step=5, special="No goal", tip=title,
+                              presets=(("No goal", 0),) + tuple((str(v), v) for v in presets) + (("Custom…", None),))
+            stepper.setFixedWidth(220)  # both goal rows line up
+            stepper.valueChanged.connect(lambda value, n=name: self.set_pref(n, value))
+            self.setting_row(grid, title, stepper, hint)
         self.setting_row(grid, "Celebrate goals and trophies", self.switch("celebrate", self.prefs.celebrate,
                                                                           "Celebrate goals and trophies"),
                          "A short message inside LootLedger. Nothing is sent anywhere.")
@@ -1019,7 +1005,6 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(sheet)
         if hasattr(self, "overlay"):
             self.overlay.setStyleSheet(sheet)
-        theme.apply_tooltips(tokens)
 
     def apply_prefs(self):
         self.apply_theme()
@@ -1506,7 +1491,7 @@ class MainWindow(QMainWindow):
         if not value.startswith("#"):
             value = "#" + value
         if not re.fullmatch(r"#[0-9a-f]{6}", value):
-            raise ValueError("Enter a colour as #rrggbb, for example #e8b04f")
+            raise ValueError("Enter a colour as #rrggbb, for example #e8b04f")  # style-lint: allow (example text)
         if value != self.prefs.seed:
             self.set_pref("seed", value)
 
@@ -1557,9 +1542,7 @@ class MainWindow(QMainWindow):
         dialog.setWindowTitle("Correct opening")
         layout = QFormLayout(dialog)
         chest_type = QLineEdit(entry["chest_type"])
-        amount = QSpinBox()
-        amount.setRange(1, 10000)
-        amount.setValue(entry["amount"])
+        amount = Stepper(1, 10000, entry["amount"], tip="Count")
         layout.addRow("Chest type", chest_type)
         layout.addRow("Count", amount)
         reason = label(entry["reason"], "muted")
@@ -1569,7 +1552,7 @@ class MainWindow(QMainWindow):
         actions.accepted.connect(dialog.accept)
         actions.rejected.connect(dialog.reject)
         layout.addRow(actions)
-        if dialog.exec():
+        if self.present(dialog, block=True):
             self.store.edit(entry["id"], chest_type=chest_type.text(), amount=amount.value())
             self.refresh()
 
@@ -1708,7 +1691,7 @@ class MainWindow(QMainWindow):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setBrush(QColor(c["primary_container"]))
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRoundedRect(QRectF(40, 40, 1120, 550), 36, 36)
+        painter.drawRoundedRect(QRectF(40, 40, 1120, 550), theme.CURRENT.r["xl"], theme.CURRENT.r["xl"])
 
         def text(x, y, w, h, value, size, color, bold=False):
             font = QFont("Segoe UI")
@@ -1809,7 +1792,7 @@ class MainWindow(QMainWindow):
                 min(max(results.currentRow() + s, 0), results.count() - 1)))
         results.itemActivated.connect(run)
         filter_items("")
-        dialog.open()
+        self.present(dialog)
         return dialog
 
     def startup_dialog(self):
@@ -1841,6 +1824,28 @@ class MainWindow(QMainWindow):
         buttons.accepted.connect(dialog.accept)
         layout.addWidget(buttons)
         dialog.setMinimumWidth(460)
+        self.present(dialog)
+        return dialog
+
+    def present(self, dialog, block=False):
+        """Open a dialog over a scrim, fading in. Modal, so focus stays inside; Esc closes it."""
+        scrim = QWidget(self)
+        scrim.setObjectName("scrim")
+        scrim.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
+        scrim.setGeometry(self.rect())
+        scrim.show()
+        scrim.raise_()
+        dialog.finished.connect(lambda *_: scrim.deleteLater())
+        if theme.CURRENT.motion:
+            dialog.setWindowOpacity(0.0)
+            fade = QPropertyAnimation(dialog, b"windowOpacity", dialog)
+            fade.setDuration(150)
+            fade.setStartValue(0.0)
+            fade.setEndValue(1.0)
+            fade.setEasingCurve(EMPHASIZED)
+            QTimer.singleShot(0, fade.start)
+        if block:
+            return dialog.exec()
         dialog.open()
         return dialog
 
@@ -1864,7 +1869,7 @@ class MainWindow(QMainWindow):
         note = wrapped(label("Global shortcuts can be changed in Settings → Shortcuts. They only notice the keys; "
                              "nothing is sent to Fortnite.", "muted"))
         grid.addWidget(note, len(rows), 0, 1, 2)
-        dialog.open()
+        self.present(dialog)
         return dialog
 
     def restore_geometry(self):

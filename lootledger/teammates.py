@@ -4,15 +4,16 @@ from datetime import timedelta
 from pathlib import Path
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Qt, Signal
-from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
-                               QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
+                               QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from . import stats, theme
 from .prefs import RANGES, number, short_date, when
+from .controls import Stepper, select
 from .store import Store
 from .stats import tag
 from .widgets import (SeriesChart, autofit, bar_rows, clear_layout, fill, fit_columns, icon_button, label,
-                      make_table, shrinkable)
+                      make_table)
 
 HEADERS = ("Player", "Matches", "Chests", "Per match", "Searched", "Broken", "Rare+", "Best")  # Rare+ = rare, relic or buried
 EXPORT_FIELDS = ("name", "you", "bot", "matches", "chests", "per_match", "searched", "broken_open",
@@ -94,14 +95,11 @@ class TeammatesPanel(QWidget):
 
         bar = QHBoxLayout()
         bar.setSpacing(t.sp["s"])
-        self.mode, self.range, self.minimum = QComboBox(), QComboBox(), QSpinBox()
-        for days in RANGES:
-            self.range.addItem("All time" if days == 0 else f"Last {days} days", days)
+        self.mode = select(tip="Game mode")
+        self.range = select((("All time" if days == 0 else f"Last {days} days", days) for days in RANGES), "Date range")
         self.range.setCurrentIndex(max(0, self.range.findData(prefs.default_range)))
-        self.minimum.setRange(0, 999)
-        self.minimum.setSpecialValueText("Any number of matches")
-        self.minimum.setPrefix("At least ")
-        shrinkable(self.mode, self.range, self.minimum)
+        self.minimum = Stepper(0, 999, 0, special="Any number of matches", prefix="At least ", suffix=" matches",
+                               tip="Minimum matches together")
         for widget in (self.mode, self.range, self.minimum):
             bar.addWidget(widget)
         self.mode.currentIndexChanged.connect(self.apply)

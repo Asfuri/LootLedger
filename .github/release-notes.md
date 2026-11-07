@@ -1,16 +1,13 @@
 Download **LootLedger.exe** and run it. No install needed.
 
-## What's new in 0.7
+## What's new in 0.7.1
 
-- **Live match card:** Idle, Waiting for a match, Live (with the match clock and how much of the replay Fortnite has saved), Saving and Match counted. Fortnite encrypts the replay until the match ends, so the chests arrive a few seconds after the match, with a count-up and a "+N" in the colour of your rarest chest. LootLedger only reads files on disk and never touches the Fortnite process.
-- **Pop-out counter:** an always-on-top LootLedger window you can drag, resize, fade and make click-through, with its own shortcut (Ctrl+Alt+F10). Optional sound when a match is counted.
-- **New cards:** setup and replay health, sessions, daily and weekly goals, trophies, and compare any two periods.
-- **Matches:** notes, tags and favourites. **Ctrl+K** jumps anywhere; **?** lists every shortcut and shows if one is taken by another app.
-- **Share** a summary image (saved or copied, never uploaded). Chest types keep one colour everywhere, with a colourblind-safe option.
-- **Motion:** shared-axis page transitions, charts that draw in, sliding snackbars and a theme cross-fade, with Full, Reduced and Off levels.
-- **Fixes:** a crash when painting the goals card, tables and filter bars in small windows, the match detail squeezing the table, clipped and ghost text, shortcut conflicts, and the window and counter remembering where they were.
+- **Tooltips fixed everywhere.** They used to be empty grey boxes. Now hover (or Tab and use the arrow keys) on the chest chart, the weekday × hour heatmap and the chest-type donut to read each point, for example "Tuesday, 21:00 · 14 chests · 3 matches", or the date with its chests, matches and the change from the period before. They follow the theme and stay inside the window.
+- **Rounded Material 3 controls.** Segmented buttons are pills with a sliding selection and a check mark. Goals use a stepper (− value +) with presets. Selects, date fields, sliders, menus, tables and scrollbars all follow the theme and your corner setting (sharp, default or round).
+- **Charts.** Bars have rounded tops, there is a new Smooth line style, the area fill fades out, the donut has rounded segments, the heatmap has a legend and visible low values, and axis labels never overlap or get cut off.
+- **Small windows.** Filter bars wrap instead of squeezing the search box.
 
-Your ledger is backed up automatically to `backups\` before it is upgraded.
+Everything from 0.7 is still here: the live match card, the pop-out counter, sessions, goals, trophies, notes and tags, Ctrl+K and the summary image.
 
 ## First launch
 
@@ -21,4 +18,4 @@ The exe is unsigned, so Windows SmartScreen may warn the first time (More info �
 
 ## Not yet verified
 
-A real live match, the pop-out counter over Fortnite, mouse drag-and-drop and global shortcuts on a real display. See [VALIDATION.md](https://github.com/femboypuppy/LootLedger/blob/main/VALIDATION.md).
+Tooltips and hover with a real mouse, rounded select popups on screen, a real live match, the pop-out counter over Fortnite, and global shortcuts on a real display. See [VALIDATION.md](https://github.com/femboypuppy/LootLedger/blob/main/VALIDATION.md).

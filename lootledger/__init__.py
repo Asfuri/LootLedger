@@ -1,3 +1,3 @@
 """LootLedger: counts the Fortnite chests you open, read from your local replays."""
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"
