@@ -7,6 +7,7 @@ helper decodes a replay and reports, for every chest or container, who searched 
 network traffic: the files are the game's own recordings on this PC.
 """
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -89,22 +90,67 @@ def started_at(result, mtime):
     return datetime.fromtimestamp(mtime, timezone.utc) - timedelta(seconds=result.get("lengthSeconds") or 0)
 
 
+def player_key(epic, name):
+    """Stable id for one player. The Epic id is hashed, so exports never carry the raw account id."""
+    if epic:
+        return "epic-" + hashlib.sha256(epic.encode("utf-8")).hexdigest()[:16]
+    return f"name-{name}" if name else None
+
+
 def summarize(result):
-    """Split a helper result into your chest openings and match metadata."""
-    mine, containers, team, teammates = [], {}, {}, {}
+    """Split a helper result into your chest openings and match metadata.
+
+    ``meta["players"]`` lists you and each teammate the replay showed, you first. Each has a stable ``key``,
+    ``counts`` per chest type as ``{"opened": n, "broken": n}``, and ``containers`` (ammo boxes and so on).
+    ``meta["unattributed"]`` counts chests whose searcher the replay never recorded.
+    """
+    owner = result.get("owner") or {}
+    me = player_key(owner.get("epicId"), owner.get("name")) or "me"
+    mine, containers, team, teammates, players = [], {}, {}, {}, {}
+
+    def seat(key, name, team_index, bot=False):
+        if key not in players:
+            players[key] = {"key": key, "name": name or "Teammate", "me": key == me, "bot": bool(bot),
+                            "team": team_index, "counts": {}, "containers": {}}
+        return players[key]
+
+    seat(me, owner.get("name"), owner.get("team"))
+    for mate in result.get("teammates", []):
+        key = player_key(mate.get("epicId"), mate.get("name"))
+        if key:
+            seat(key, mate.get("name"), mate.get("team"), mate.get("bot"))
+    unattributed = 0
     for event in result.get("events", []):
         name, is_chest = classify(event["cls"])
+        if event["by"] == "unknown":
+            unattributed += is_chest  # opened before your game first showed it: no searcher to credit
+            continue
+        if event["by"] not in ("me", "team"):
+            continue
         if event["by"] == "me":
+            person = players[me]
             if is_chest:
                 mine.append({**event, "type": name})
             else:
                 containers[name] = containers.get(name, 0) + 1
-        elif event["by"] == "team" and is_chest:
-            counts = team.setdefault(name, {"opened": 0, "broken": 0})
-            counts[event["kind"]] = counts.get(event["kind"], 0) + 1
-            player = event.get("player") or "Teammate"
-            teammates[player] = teammates.get(player, 0) + 1
-    owner = result.get("owner") or {}
+        else:
+            person = seat(player_key(event.get("playerId"), event.get("player")) or f"anon-{event.get('pawn')}",
+                          event.get("player"), None)
+            if is_chest:
+                counts = team.setdefault(name, {"opened": 0, "broken": 0})
+                counts[event["kind"]] = counts.get(event["kind"], 0) + 1
+                player = event.get("player") or "Teammate"
+                teammates[player] = teammates.get(player, 0) + 1
+        if is_chest:
+            counts = person["counts"].setdefault(name, {"opened": 0, "broken": 0})
+            counts[event["kind"]] += 1
+        else:
+            person["containers"][name] = person["containers"].get(name, 0) + 1
+
+    def total(person):
+        return sum(c["opened"] + c["broken"] for c in person["counts"].values())
+
+    ordered = sorted(players.values(), key=lambda p: (not p["me"], -total(p), p["name"]))
     meta = {
         "file": Path(result["file"]).name, "playlist": result.get("playlist"), "mode": mode_name(result.get("playlist")),
         "placement": result.get("placement"), "total_players": result.get("totalPlayers"),
@@ -113,6 +159,7 @@ def summarize(result):
         "teammates": [t.get("name") for t in result.get("teammates", []) if t.get("name")],
         "containers": containers, "team": team, "team_players": teammates,
         "complete": bool(result.get("ok")), "error": result.get("error"), "branch": result.get("branch"),
+        "players": ordered, "unattributed": unattributed,
     }
     return mine, meta
 
@@ -154,10 +201,11 @@ def scan(store, folder, *, helper=None, now=None, batch=12, progress=None, analy
         raise FileNotFoundError(f"Replay folder not found: {folder}")
     now = now if now is not None else datetime.now(timezone.utc).timestamp()
     known = store.replay_files()
+    older = store.files_without_players()  # read before per-player details existed: read them again
     files = []
     for path in sorted(folder.glob("*.replay"), key=lambda p: p.stat().st_mtime):
         stat = path.stat()
-        if known.get(path.name) != (stat.st_size, stat.st_mtime):
+        if path.name in older or known.get(path.name) != (stat.st_size, stat.st_mtime):
             files.append((path, stat))
     live = None
     for start in range(0, len(files), batch):

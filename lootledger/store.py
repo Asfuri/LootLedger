@@ -219,6 +219,12 @@ class Store:
     def replay_files(self):
         return {row["file"]: (row["size"], row["mtime"]) for row in self.db.execute("SELECT * FROM replay_files")}
 
+    def files_without_players(self):
+        """Replay files whose match was read before per-player details existed."""
+        return {row[0] for row in self.db.execute("""SELECT r.file FROM replay_files r
+                                                     JOIN match_meta m ON m.match_id=r.match_id
+                                                     WHERE r.status='imported' AND json_extract(m.meta,'$.players') IS NULL""")}
+
     def forget_replay_files(self):
         """Read every replay again on the next scan; imports are idempotent and keep your corrections."""
         with self.db:

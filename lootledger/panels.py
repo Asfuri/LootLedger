@@ -209,6 +209,9 @@ class TypesCard(Card):
         self.table.setHorizontalSpacing(theme.CURRENT.sp["m"])
         row.addLayout(self.table, 1)
         self.body.addLayout(row)
+        self.note = label("", "muted")
+        self.note.setWordWrap(True)
+        self.body.addWidget(self.note)
         self.body.addStretch()
 
     def refresh(self, ctx):
@@ -217,23 +220,26 @@ class TypesCard(Card):
         types = snap["types"].most_common()
         self.donut.set_slices([(name, value, theme.CURRENT.type_color(name)) for name, value in types if value],
                               number(snap["all"], prefs), "chests")
-        for column, text in enumerate(("", "Type", "You", "Teammates")):
+        # Rows cover every type either side opened, so the teammate column always adds up to its total.
+        names = [name for name, _ in types] + sorted(set(snap["team_types"]) - set(snap["types"]))
+        for column, text in enumerate(("", "Type", "You", "Teammates*")):
             self.table.addWidget(label(text, "cardTitle"), 0, column)
-        for index, (name, value) in enumerate(types, 1):
+        for index, name in enumerate(names, 1):
             dot = label("●")
             dot.setStyleSheet(f"color: {theme.CURRENT.type_color(name)};")
             dot.setAccessibleName(name)
             self.table.addWidget(dot, index, 0)
             self.table.addWidget(label(name), index, 1)
-            self.table.addWidget(label(number(value, prefs), "value"), index, 2)
+            self.table.addWidget(label(number(snap["types"].get(name, 0), prefs), "value"), index, 2)
             self.table.addWidget(label(number(snap["team_types"].get(name, 0), prefs), "muted"), index, 3)
-        if types:
-            self.table.addWidget(label("Total", "cardTitle"), len(types) + 1, 1)
-            self.table.addWidget(label(number(snap["all"], prefs), "value"), len(types) + 1, 2)
-            self.table.addWidget(label(number(snap["team_total"], prefs), "muted"), len(types) + 1, 3)
+        if names:
+            self.table.addWidget(label("Total", "cardTitle"), len(names) + 1, 1)
+            self.table.addWidget(label(number(snap["all"], prefs), "value"), len(names) + 1, 2)
+            self.table.addWidget(label(number(snap["team_total"], prefs), "muted"), len(names) + 1, 3)
         else:
             self.table.addWidget(label("No chests yet", "muted"), 1, 1, 1, 3)
         self.table.setColumnStretch(1, 1)
+        self.note.setText("*Only chests your replays recorded. Details on the Teammates page.")
 
 
 class ModesCard(Card):
@@ -316,13 +322,15 @@ class TeamCard(Card):
             self.note.setText("")
             return
         you, team = snap["match_chests"], snap["team_total"]
+        mates = [p for p in snap["board"] if not p["me"] and not p["unranked"]][:3]
         bar_rows(self.rows, [
             ("You", you, f"{number(you, prefs)} · {number(snap['avg'], prefs, 1)} per match", None),
             ("Teammates", team, f"{number(team, prefs)} · {number(snap['team_per_match'] or 0, prefs, 1)} per match", None),
-        ])
+        ] + [(p["name"], p["total"], f"{number(p['total'], prefs)} in {p['matches']} "
+              f"match{'es' if p['matches'] != 1 else ''}", None) for p in mates])
         share = snap["your_share"]
         self.note.setText((f"You opened {share:.0%} of the chests your replays recorded. " if share is not None else "")
-                          + "Teammate counts only include chests your replays recorded.")
+                          + "Teammate counts only include chests your replays recorded. Full squad breakdown: Teammates page.")
 
 
 class BrokenCard(Card):
@@ -338,15 +346,25 @@ class BrokenCard(Card):
     def refresh(self, ctx):
         snap, prefs = ctx.snap, ctx.prefs
         clear_layout(self.rows)
-        searched = snap["all"] - snap["broken"]
-        share = round(100 * snap["broken"] / snap["all"]) if snap["all"] else 0
-        bar_rows(self.rows, [
-            ("Searched", searched, number(searched, prefs), None),
-            ("Broken open", snap["broken"], f"{number(snap['broken'], prefs)} · {share}%", theme.CURRENT.c["tertiary"]),
-        ])
-        others = [f"{name.lower()}s {number(count, prefs)}" for name, count in snap["containers"].items()]
-        self.extra.setText("Not counted as chests: " + ", ".join(others) if others else
-                           "Broken open means the chest was destroyed before anyone searched it.")
+        for column, text in enumerate(("", "You", "Teammates*")):
+            self.rows.addWidget(label(text, "cardTitle"), 0, column)
+        searched = (snap["all"] - snap["broken"], snap["team_opened"])
+        broken = (snap["broken"], snap["team_broken"])
+        total = (searched[0] + broken[0], searched[1] + broken[1])
+        for row, (name, pair) in enumerate((("Searched", searched), ("Broken open", broken), ("Total", total)), 1):
+            self.rows.addWidget(label(name, "cardTitle" if name == "Total" else "muted"), row, 0)
+            self.rows.addWidget(label(number(pair[0], prefs), "value"), row, 1)
+            self.rows.addWidget(label(number(pair[1], prefs), "value"), row, 2)
+        self.rows.setColumnStretch(0, 1)
+        ammo = sorted(set(snap["containers"]) | set(snap["team_containers"]))
+        notes = []
+        if ammo:
+            notes.append("Not counted as chests: " + " · ".join(
+                f"{name}, you {number(snap['containers'].get(name, 0), prefs)} / teammates "
+                f"{number(snap['team_containers'].get(name, 0), prefs)}" for name in ammo))
+        notes.append("*Teammates: only chests your replays recorded. Broken open means the chest was destroyed "
+                     "before anyone searched it.")
+        self.extra.setText("\n".join(notes))
 
 
 def make_panel(key, prefs, set_pref):

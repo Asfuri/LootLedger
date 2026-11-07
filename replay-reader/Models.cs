@@ -42,6 +42,8 @@ public sealed class ContainerEvent
     /// <summary>"me", "team", "other" or "unknown".</summary>
     public string By { get; set; } = "";
     public string? Player { get; set; }
+    /// <summary>Epic account id (bot id for bots) of the searching player: set for "me" and "team" events.</summary>
+    public string? PlayerId { get; set; }
     /// <summary>Network GUID of the searching pawn, when the replay recorded one.</summary>
     public uint? Pawn { get; set; }
     /// <summary>Network GUID of the container: stable within one match.</summary>

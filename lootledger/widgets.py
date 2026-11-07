@@ -1,8 +1,9 @@
 """Material 3 widgets: cards, buttons, switches, segmented controls, snackbar, charts and the dashboard grid."""
 from PySide6.QtCore import QMimeData, QPointF, QRectF, QTimer, QVariantAnimation, Qt, Signal
 from PySide6.QtGui import QColor, QDrag, QFont, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import (QAbstractButton, QApplication, QButtonGroup, QFrame, QGridLayout, QHBoxLayout,
-                               QLabel, QProgressBar, QPushButton, QToolTip, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractButton, QAbstractItemView, QApplication, QButtonGroup, QFrame, QGridLayout,
+                               QHBoxLayout, QHeaderView, QLabel, QProgressBar, QPushButton, QTableView, QToolTip,
+                               QVBoxLayout, QWidget)
 
 from . import theme
 from .prefs import elapsed
@@ -53,6 +54,32 @@ def clear_layout(layout):
             item.widget().deleteLater()
         elif item.layout():
             clear_layout(item.layout())
+
+
+def fill(combo, items):
+    """Replace a combo's items without emitting signals, keeping the current choice when it still exists."""
+    current = combo.currentData()
+    combo.blockSignals(True)
+    combo.clear()
+    for text, data in items:
+        combo.addItem(text, data)
+    combo.setCurrentIndex(max(0, combo.findData(current)))
+    combo.blockSignals(False)
+
+
+def make_table():
+    view = QTableView()
+    view.verticalHeader().hide()
+    view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+    view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+    view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+    view.setShowGrid(False)
+    view.setSortingEnabled(True)
+    view.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+    view.horizontalHeader().setResizeContentsPrecision(60)  # measure columns from the first rows only; thousands of rows would stall restyling
+    view.horizontalHeader().setStretchLastSection(True)
+    view.setMinimumHeight(160)
+    return view
 
 
 def bar_rows(layout, rows):

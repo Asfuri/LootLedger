@@ -1,5 +1,41 @@
 # LootLedger validation
 
+# 0.6 teammates
+
+Date: 7 November 2026.
+
+What was wrong:
+
+- The helper already read teammates' searched and broken-open chests. The app threw the split away: the snapshot kept one total per type, and the Broken card showed only your numbers. Teammates' broken-open count could not appear.
+- Teammates were keyed by display name, so a renamed teammate became two people.
+- Teammate ammo boxes were dropped. The By-type table listed only chest types you had opened, so a type only teammates opened was missing from its rows while the Total row still counted it.
+- The "(seen)" label was not explained. Teammate counts are only what the replay recorded.
+
+What changed:
+
+- The helper writes the searching player's Epic id on each chest (`playerId`). Each match stores every player with searched and broken counts per type, and the id is hashed, so the ledger and exports never hold the raw teammate id. The data lives in the match metadata, so the SQLite schema is unchanged.
+- Matches saved before this change have no per-player detail. The scanner reads their replay files again on the next scan, if Fortnite still has them. Totals and corrections do not change, because imports are idempotent.
+- New Teammates page (leaderboard, records, filters, profile, CSV/JSON export), a squad table in match details with searched, broken, share and types, and teammate figures on the Broken and By-type cards.
+- Fixed: "Last 7 days" on the Matches page covered 8 days. It now covers 7, today included.
+
+Checks:
+
+- **Regression on real replays:** 97 replays were read by both the old and the new helper. The 3 others had been removed from the Fortnite folder during the session. The chest events are identical apart from the new id field. The old and new summaries agree on every existing field. Every invariant holds: your total equals your chest events, teammate totals equal their per-type parts, the unattributed count is right, and no player is listed twice.
+- **Migration on a copy of the real ledger:** 113 matches, 107 without per-player detail. The scan re-read 98 replay files in 189 s. Afterwards 9 older matches remain without detail because their replay files are gone. Totals are unchanged for all 113 matches, no event was lost or changed, undone and review corrections are kept, and 58 people appear on the Teammates board.
+- **Known match:** `python scripts/verify_replays.py` checks the bundled 17:23 squad match (your 27 opened and 9 broken are the hand-counted values). It also reads any replay files you pass in and checks each one. Two more real replays passed.
+- **Tests:** 153 pass with `pytest`, 12 of them new (`tests/test_teammates.py`).
+- **Smoke test:** the packaged-style smoke test passes with 6 pages.
+- **Visual review:** Teammates, Matches detail and Statistics were rendered offscreen in light and dark. Layout fixes: the leaderboard fits without sideways scroll, and the squad table and footnotes wrap.
+
+Limits (what replay files do not show):
+
+- About 20 chests per match (1,911 across the 97 replays) were already open when your game first showed them. The replay has no searching player for them, so nobody is credited. Teammate and "other" counts are therefore lower bounds.
+- A teammate far from you may open chests your game never received.
+- Two bot records in the replays have no id and no name, so they are not listed. Bots and unnamed players are listed where they appear but never ranked or recorded.
+- Only you have a known answer. Teammate counts are checked for consistency and against the previous build, not against a count made by hand.
+
+Not yet verified: teammate counts during a live match, and the Teammates page on a real display at other scales. The release build runs on GitHub Actions: it runs the tests and the packaged smoke test, and the run log holds the result.
+
 # 0.5 interface overhaul
 
 Date: 7 November 2026. Development on Windows 11 x64. The release exe is built and smoke-tested on GitHub's Windows runner.

@@ -14,19 +14,21 @@ from PySide6.QtCore import (QAbstractTableModel, QEasingCurve, QModelIndex, QObj
 from PySide6.QtGui import QColor, QDesktopServices, QFont, QGuiApplication, QKeySequence, QPainter, QPen, QShortcut
 from PySide6.QtWidgets import (QAbstractButton, QAbstractItemView, QApplication, QButtonGroup, QComboBox, QDialog,
                                QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGraphicsOpacityEffect, QGridLayout,
-                               QHBoxLayout, QHeaderView, QLineEdit, QMainWindow, QMenu, QMessageBox, QPushButton,
-                               QScrollArea, QSpinBox, QStackedWidget, QTableView, QVBoxLayout, QWidget)
+                               QHBoxLayout, QLineEdit, QMainWindow, QMenu, QMessageBox, QProgressBar, QPushButton,
+                               QScrollArea, QSpinBox, QStackedWidget, QTableWidget, QTableWidgetItem, QVBoxLayout,
+                               QWidget)
 
-from . import replay_reader, theme
+from . import replay_reader, stats, theme
 from .config import Config, data_dir
 from .hotkeys import Hotkeys
 from .panels import STAT_TITLES, make_panel, widget_title
 from .prefs import RANGES, WIDGETS, Prefs, default_layout, elapsed, number, when
 from .store import EVENT_FIELDS, Store
-from .widgets import (Card, DashGrid, Segmented, Snackbar, Switch, Timeline, bar_rows, clear_layout, icon_button,
-                      label, retone)
+from .teammates import TeammatesPanel
+from .widgets import (Card, DashGrid, Segmented, Snackbar, Switch, Timeline, bar_rows, clear_layout, fill, icon_button,
+                      label, make_table, retone)
 
-NAV = (("Overview", "dashboard"), ("Matches", "sports_esports"), ("Openings", "inventory_2"),
+NAV = (("Overview", "dashboard"), ("Matches", "sports_esports"), ("Teammates", "groups"), ("Openings", "inventory_2"),
        ("Statistics", "insights"), ("Settings", "settings"))
 STATS_ORDER = ("trend", "types", "modes", "heat", "records", "teammates", "broken") + tuple(
     f"stat:{key}" for key in STAT_TITLES)
@@ -34,32 +36,6 @@ REPLAY_KEYS = ("replay_folder", "count_broken", "scan_seconds", "auto_watch")
 RANGE_CHOICES = tuple((days, "All time" if days == 0 else f"Last {days} days") for days in RANGES)
 SEEDS = {"Amber": "#e8b04f", "Violet": "#a98aee", "Blue": "#5b9cf0",
          "Teal": "#3fb8a0", "Rose": "#e8718f", "Green": "#7cc46a"}
-
-
-def fill(combo, items):
-    """Replace a combo's items without emitting signals, keeping the current choice when it still exists."""
-    current = combo.currentData()
-    combo.blockSignals(True)
-    combo.clear()
-    for text, data in items:
-        combo.addItem(text, data)
-    combo.setCurrentIndex(max(0, combo.findData(current)))
-    combo.blockSignals(False)
-
-
-def make_table():
-    view = QTableView()
-    view.verticalHeader().hide()
-    view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-    view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-    view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-    view.setShowGrid(False)
-    view.setSortingEnabled(True)
-    view.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-    view.horizontalHeader().setResizeContentsPrecision(60)  # measure columns from the first rows only; thousands of rows would stall restyling
-    view.horizontalHeader().setStretchLastSection(True)
-    view.setMinimumHeight(160)
-    return view
 
 
 def source_row(proxy, model, index):
@@ -326,8 +302,22 @@ class MatchDetail(QFrame):
         right.addWidget(label("Openings during the match", "cardTitle"))
         self.timeline = Timeline("No timed openings in this replay")
         right.addWidget(self.timeline, 1)
-        body.addLayout(right, 2)
+        body.addLayout(right, 1)
         outer.addLayout(body)
+        outer.addWidget(label("Squad: what each player opened or broke", "cardTitle"))
+        self.squad_note = label("", "muted")
+        self.squad_note.setWordWrap(True)
+        outer.addWidget(self.squad_note)
+        self.squad = QTableWidget(0, 6)
+        self.squad.setHorizontalHeaderLabels(["Player", "Chests", "Searched", "Broken open", "Share of squad", "Types"])
+        self.squad.verticalHeader().hide()
+        self.squad.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.squad.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.squad.setShowGrid(False)
+        self.squad.setWordWrap(True)
+        self.squad.horizontalHeader().setStretchLastSection(True)
+        self.squad.setMaximumHeight(260)
+        outer.addWidget(self.squad)
         self.hide()
 
     def show_match(self, row, marks, prefs):
@@ -340,6 +330,28 @@ class MatchDetail(QFrame):
         rows = [(name, count, number(count, prefs), theme.CURRENT.type_color(name))
                 for name, count in row["types"].most_common()]
         bar_rows(self.bars, rows or [("No chests opened", 0, "", None)])
+        self.squad.setRowCount(0)
+        squad = row["squad"]
+        self.squad_note.setText("This older match has no per-player detail. It is read again on the next scan, "
+                                "while its replay file is still on disk." if squad is None else "")
+        for person in squad or []:
+            index = self.squad.rowCount()
+            self.squad.insertRow(index)
+            types = ", ".join(f"{name} {number(count, prefs)}"
+                              for name, count in sorted(person["types"].items(), key=lambda kv: -kv[1]))
+            cells = (person["name"] + stats.tag(person) + (" · MVP" if person["key"] == row["mvp"] else ""),
+                     number(person["total"], prefs), number(person["opened"], prefs), number(person["broken"], prefs), "", types)
+            for column, text in enumerate(cells):
+                self.squad.setItem(index, column, QTableWidgetItem(text))
+            share = QProgressBar()
+            share.setRange(0, 100)
+            share.setValue(round(100 * person["total"] / (row["squad_total"] or 1)))
+            share.setTextVisible(True)
+            share.setFormat("%p%")
+            share.setMinimumHeight(20)
+            self.squad.setCellWidget(index, 4, share)
+        self.squad.resizeColumnsToContents()
+        self.squad.resizeRowsToContents()
         self.timeline.set_marks(marks, row["seconds"])
         self.show()
 
@@ -420,6 +432,7 @@ class MainWindow(QMainWindow):
         self.snackbar = Snackbar(root)
         self.build_overview()
         self.build_matches()
+        self.build_teammates()
         self.build_openings()
         self.build_statistics()
         self.build_settings()
@@ -563,6 +576,13 @@ class MainWindow(QMainWindow):
         self.match_mode.currentIndexChanged.connect(lambda _: self.apply_match_filters())
         self.match_type.currentIndexChanged.connect(lambda _: self.apply_match_filters())
         self.match_min.valueChanged.connect(lambda _: self.apply_match_filters())
+
+    def build_teammates(self):
+        layout, _ = self.page("Teammates", "Everyone who played with you, merged across matches. Pick someone to see their profile.",
+                              scroll=True)
+        self.team_panel = TeammatesPanel(self.prefs)
+        self.team_panel.exported.connect(self.snackbar.show_text)
+        layout.addWidget(self.team_panel)
 
     def build_openings(self):
         fab = QPushButton("add")
@@ -937,6 +957,7 @@ class MainWindow(QMainWindow):
             self.fill_filters(snap)
             self.apply_match_filters()
             self.apply_entry_filters()
+        self.team_panel.refresh(snap, self.prefs)
         self.refresh_status()
         self.refresh_overlay(snap)
 
@@ -955,7 +976,7 @@ class MainWindow(QMainWindow):
 
     def match_conditions(self):
         days = self.match_range.currentData()
-        since = (datetime.now().astimezone() - timedelta(days=days)).date() if days else None
+        since = (datetime.now().astimezone() - timedelta(days=days - 1)).date() if days else None  # today plus the last N-1 days
         return dict(since=since, mode=self.match_mode.currentData(), minimum=self.match_min.value(),
                     type=self.match_type.currentData(), text=self.match_search.text().strip())
 

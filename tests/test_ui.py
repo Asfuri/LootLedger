@@ -194,7 +194,7 @@ def test_clear_data_backs_up_first_and_keeps_replays_unread(window, monkeypatch)
 
 
 def test_every_page_renders(window):
-    for index in range(5):
+    for index in range(6):
         window.navigate(index)
         QApplication.instance().processEvents()
         assert window.pages.currentIndex() == index

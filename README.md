@@ -1,4 +1,4 @@
-# LootLedger 0.5
+# LootLedger 0.6
 
 A Windows desktop chest tracker for Fortnite. It reads the **replay files Fortnite already saves on your PC** and counts every chest *you* opened: per match, per day, per type, all time. Your teammates' chests are shown separately.
 
@@ -32,7 +32,7 @@ Fortnite only keeps your most recent replays (100 here) and deletes older ones. 
 
 **Broken open** means the chest was destroyed by your damage before anyone searched it, and its loot spilled. Several containers in a vault can break open at once. Broken-open chests count by default (shown as a separate line). You can turn that off in **Settings**.
 
-**Teammates (seen)** only includes chests your replay recorded. A teammate far from you may open chests your game never received.
+**Teammates** only includes chests your replay recorded. A teammate far from you may open chests your game never received. Some chests were already open when your game first showed them, so the replay cannot say who opened them. They are counted in the match totals but not credited to anyone; the Teammates page shows how many. Teammates are matched by their Epic account id, so a renamed teammate stays one person (the id is stored hashed).
 
 ### Corrections
 
@@ -45,12 +45,13 @@ The ledger is `%LOCALAPPDATA%\LootLedger\ledger.sqlite` (SQLite, saved immediate
 ## Pages and settings
 
 - **Overview:** the current match, all time, today, this week and this month, each compared with the same days in the previous period. Also chests over time (7 days, 30 days, 90 days or all; by day, week or month; bar, line or area), chest types, records and streaks, and your team. Click **Customize** to add, remove, resize and drag cards. **Reset layout** restores the default.
-- **Matches:** every match, searchable and filterable by date range, mode, chest type and minimum chests. Select a match to see its chests by type and when each opening happened. Column headers sort.
+- **Matches:** every match, searchable and filterable by date range, mode, chest type and minimum chests. Select a match to see its chests by type, the squad (you and each teammate, with the MVP and each player's share) and when each opening happened. Column headers sort.
+- **Teammates:** everyone who played with you, merged across matches, with searched and broken-open counts, rare chests, each player's best match and records (most chests, best single match, most matches together). Filter by mode, date range and minimum matches, select a player for their profile (chests per match, chest types, matches together), and export the table as CSV or JSON. Bots and unnamed players are listed but never ranked.
 - **Openings:** every chest, filtered by match, type, status and text. The timeline above shows the chosen match. **Export** writes exactly the rows you can see, as CSV or JSON.
 - **Statistics:** the same cards with a weekday-by-hour heatmap, the game-mode breakdown and the full set of tiles.
 - **Settings:** theme (light, dark or system), accent colour (presets or your own `#rrggbb`), higher contrast, corner shape, density, text size, chart style, background, animations, overview tiles, date, time and number formats, replay folder, auto-watch, counting broken-open chests and shortcuts. Data tools: export, backups, settings export and import, and **Clear all data**, which saves a backup first.
 
-Every setting applies immediately and is saved to `%LOCALAPPDATA%\LootLedger\ui-settings.json`. **Ctrl+1** to **Ctrl+5** switch pages.
+Every setting applies immediately and is saved to `%LOCALAPPDATA%\LootLedger\ui-settings.json`. **Ctrl+1** to **Ctrl+6** switch pages.
 
 ## Build from source
 

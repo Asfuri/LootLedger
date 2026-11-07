@@ -231,6 +231,7 @@ public sealed class ChestReplayReader : FortniteReplayReader.ReplayReader
                     Kind = episode.Kind,
                     By = by,
                     Player = by == "team" ? NameOf(player) : null,
+                    PlayerId = by == "me" ? result.Owner?.EpicId : by == "team" ? player : null,
                     Pawn = episode.Pawn,
                     Actor = actor,
                     Episode = i,

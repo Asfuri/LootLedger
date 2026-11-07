@@ -73,11 +73,12 @@ def main(output):
                 else:
                     report["checks"]["real_replay"] = "skipped (no finished Fortnite replay on this PC)"
                 window.resize(1240, 1000)
-                for index, name in enumerate(("overview", "matches", "openings", "statistics", "settings")):
+                names = ("overview", "matches", "teammates", "openings", "statistics", "settings")
+                for index, name in enumerate(names):
                     window.navigate(index)
                     app.processEvents()
                     window.grab().save(str(output / f"{name}.png"))
-                report["checks"]["pages_rendered"] = 5
+                report["checks"]["pages_rendered"] = len(names)
             finally:
                 window.close()
         report["passed"] = True

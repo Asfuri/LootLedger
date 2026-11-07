@@ -99,6 +99,84 @@ def last_days(snap, count):
     return [snap["per_day"].get(today - timedelta(days=offset), 0) for offset in range(count - 1, -1, -1)]
 
 
+RARE = ("Rare chest", "Relic chest", "Buried chest")
+
+
+def _squad(meta, include_broken):
+    """Everyone the replay showed in one match, most chests first. Your counts come from your own events."""
+    people = []
+    for p in meta["players"]:
+        counts = p.get("counts") or {}
+        opened = sum(c.get("opened", 0) for c in counts.values())
+        broken = sum(c.get("broken", 0) for c in counts.values()) if include_broken else 0
+        types = {name: c.get("opened", 0) + (c.get("broken", 0) if include_broken else 0) for name, c in counts.items()}
+        anonymous = p["key"].startswith("anon-")  # no account id and no name in the replay
+        people.append({"key": p["key"], "name": p["name"], "me": p["me"], "bot": p["bot"], "anonymous": anonymous,
+                       "unranked": p["bot"] or anonymous, "opened": opened, "broken": broken,
+                       "total": opened + broken,
+                       "types": {name: n for name, n in types.items() if n}, "containers": p.get("containers") or {}})
+    people.sort(key=lambda p: (-p["total"], -p["opened"], not p["me"], p["name"]))
+    return people
+
+
+def tag(person):
+    """Short label after a name: you, bot, or unnamed."""
+    return " · you" if person["me"] else " · bot" if person["bot"] else " · unnamed" if person["anonymous"] else ""
+
+
+def _mvp(squad):
+    """Key of the player with the most chests, or None on a tie. Bots and unnamed players are never MVP."""
+    ranked = sorted((p for p in squad if p["total"] and not p["unranked"]), key=lambda p: (-p["total"], -p["opened"]))
+    if not ranked or (len(ranked) > 1 and (ranked[0]["total"], ranked[0]["opened"]) == (ranked[1]["total"], ranked[1]["opened"])):
+        return None
+    return ranked[0]["key"]
+
+
+def board(rows):
+    """Everyone across these match rows, merged by stable id, most chests first. Bots are listed but not ranked."""
+    people = {}
+    for row in sorted(rows, key=lambda r: r["when"]):  # oldest first, so the newest name wins
+        for p in row["squad"] or []:
+            person = people.setdefault(p["key"], {"key": p["key"], "name": p["name"], "me": p["me"], "bot": p["bot"],
+                                                  "anonymous": p["anonymous"], "unranked": p["unranked"],
+                                                  "matches": 0, "total": 0, "opened": 0, "broken": 0,
+                                                  "types": Counter(), "best": 0, "best_when": None, "last": None})
+            person["name"] = p["name"]
+            person["matches"] += 1
+            person["total"] += p["total"]
+            person["opened"] += p["opened"]
+            person["broken"] += p["broken"]
+            person["types"].update(p["types"])
+            if p["total"] > person["best"]:
+                person["best"], person["best_when"] = p["total"], row["when"]
+            person["last"] = row["when"]
+    ranked = sorted(people.values(), key=lambda x: (x["unranked"], -x["total"], -x["matches"], x["name"]))
+    for person in ranked:
+        person["per_match"] = person["total"] / person["matches"]
+        person["rare"] = sum(person["types"][name] for name in RARE)
+    return ranked
+
+
+def records(ranked):
+    """Records among teammates (you, bots and unnamed players excluded): most chests, best single match, most together."""
+    mates = [p for p in ranked if not p["me"] and not p["unranked"]]
+    return {"most_chests": max(mates, key=lambda p: p["total"], default=None),
+            "best_match": max(mates, key=lambda p: p["best"], default=None),
+            "most_played": max(mates, key=lambda p: p["matches"], default=None)}
+
+
+def profile(rows, key):
+    """One player's matches with you, oldest first: their chests and yours in each."""
+    history = []
+    for row in sorted(rows, key=lambda r: r["when"]):
+        for p in row["squad"] or []:
+            if p["key"] == key:
+                mine = next((q["total"] for q in row["squad"] if q["me"]), 0)
+                history.append({"id": row["id"], "when": row["when"], "mode": row["mode"], "total": p["total"],
+                                "opened": p["opened"], "broken": p["broken"], "types": p["types"], "mine": mine})
+    return history
+
+
 def compute(events, matches, now, session_start=None, include_broken=True):
     today = now.date()
     per_day, types, match_types = Counter(), Counter(), {}
@@ -115,21 +193,31 @@ def compute(events, matches, now, session_start=None, include_broken=True):
 
     analyzed = sorted((m for m in matches if m["meta"] is not None), key=lambda m: m["started"])
     analyzed_ids = {m["id"] for m in analyzed}
-    modes, containers, team_types = {}, Counter(), Counter()
+    modes, containers, team_types, team_containers = {}, Counter(), Counter(), Counter()
+    team_opened = team_broken = unattributed = 0
     rows = []
     for m in matches:
         meta = m["meta"] or {}
+        analyzed_row = m["id"] in analyzed_ids
         team = 0
         for name, counts in (meta.get("team") or {}).items():
-            count = counts.get("opened", 0) + (counts.get("broken", 0) if include_broken else 0)
+            opened_n, broken_n = counts.get("opened", 0), counts.get("broken", 0)
+            count = opened_n + (broken_n if include_broken else 0)
             team += count
-            if m["id"] in analyzed_ids:
+            if analyzed_row:
                 team_types[name] += count
-        if m["id"] in analyzed_ids:
+                team_opened += opened_n
+                team_broken += (broken_n if include_broken else 0)
+        squad = _squad(meta, include_broken) if "players" in meta else None
+        if analyzed_row:
             bucket = modes.setdefault(meta.get("mode") or "Unknown mode", {"matches": 0, "chests": 0})
             bucket["matches"] += 1
             bucket["chests"] += m["total"]
             containers.update(meta.get("containers") or {})
+            unattributed += meta.get("unattributed", 0)
+            for p in squad or []:
+                if not p["me"]:
+                    team_containers.update(p["containers"])
         rows.append({
             "id": m["id"], "when": m["started"], "seconds": m["seconds"], "count": m["total"],
             "broken": m["broken"], "mode": meta.get("mode") or ("Unknown mode" if meta else "Manual"),
@@ -137,6 +225,9 @@ def compute(events, matches, now, session_start=None, include_broken=True):
             "ammo": (meta.get("containers") or {}).get("Ammo box", 0),
             "placement": meta.get("placement"), "players": meta.get("total_players"),
             "teammates": [name for name in (meta.get("teammates") or []) if name],
+            "squad": squad, "mvp": _mvp(squad) if squad else None,
+            "squad_total": sum(p["total"] for p in squad) if squad else 0,
+            "unattributed": meta.get("unattributed", 0),
         })
     rows.sort(key=lambda row: row["when"], reverse=True)
 
@@ -169,6 +260,9 @@ def compute(events, matches, now, session_start=None, include_broken=True):
         "streak_longest": streak_longest, "streak_current": streak_current,
         "session_best": _longest_session(analyzed), "peak_hour": _peak_hour(events) if events else (0, None),
         "heat": heat, "team_total": team_total, "team_types": team_types,
+        "team_opened": team_opened, "team_broken": team_broken, "team_containers": team_containers,
+        "unattributed": unattributed, "board": board(rows),
+        "older_matches": sum(1 for m in analyzed if "players" not in m["meta"]),
         "team_per_match": team_total / len(analyzed) if analyzed else None,
         "your_share": replay_chests / (replay_chests + team_total) if replay_chests + team_total else None,
         "player": analyzed[-1]["meta"].get("owner") if analyzed else None,
