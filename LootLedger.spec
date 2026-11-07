@@ -10,6 +10,10 @@ if not helper.is_file():
 notices = [('LICENSE', '.'), ('THIRD_PARTY.md', '.'), (str(helper), 'replay-reader'),
            ('replay-reader/vendor/FortniteReplayDecompressor/LICENSE', 'licenses/FortniteReplayDecompressor'),
            ('replay-reader/vendor/FortniteReplayDecompressor/VENDORED.md', 'licenses/FortniteReplayDecompressor')]
+# Material Symbols icon font (Apache-2.0). The app loads it from lootledger/assets/fonts at runtime.
+fonts = root / 'lootledger' / 'assets' / 'fonts'
+notices += [(str(fonts / 'MaterialSymbolsRounded.ttf'), 'lootledger/assets/fonts'),
+            (str(fonts / 'LICENSE-MaterialSymbols.txt'), 'licenses/MaterialSymbols')]
 # The replay reader embeds the .NET runtime (MIT); keep its licence and third-party notices.
 dotnet_root = Path(os.environ.get('LOOTLEDGER_DOTNET_ROOT', root / '.dotnet'))
 for name in ('LICENSE.txt', 'ThirdPartyNotices.txt'):

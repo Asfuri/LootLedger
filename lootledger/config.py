@@ -51,6 +51,7 @@ class Config:
     replay_folder: str = ""
     count_broken: bool = True
     scan_seconds: int = 20
+    auto_watch: bool = True
 
     def validate(self):
         if self.detector_backend not in ("model", "template"):
@@ -78,7 +79,7 @@ class Config:
                                       if (model_folder() / name).is_file() else "missing"
                                       for name in ("chest-state.onnx", "chest-anchors.npz", "chest-model.json")}
         for key in ("validation_report", "evidence", "hotkey_add", "hotkey_undo", "capture",
-                    "replay_folder", "count_broken", "scan_seconds"):
+                    "replay_folder", "count_broken", "scan_seconds", "auto_watch"):
             payload.pop(key)
         for template in payload["templates"]:
             path = Path(template["path"])

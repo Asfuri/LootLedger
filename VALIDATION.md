@@ -1,6 +1,21 @@
-# LootLedger 0.4 validation
+# LootLedger validation
 
-Date: 6 November 2026. Windows 11 x64, Fortnite build `++Fortnite+Release-43.00`. Earlier screen-detector records: [VALIDATION-0.3.md](VALIDATION-0.3.md), [VALIDATION-0.2.md](VALIDATION-0.2.md), [VALIDATION-0.1.md](VALIDATION-0.1.md).
+# 0.5 interface overhaul
+
+Date: 7 November 2026. Development on Windows 11 x64. The release exe is built and smoke-tested on GitHub's Windows runner.
+
+- **Tests:** 141 pass with `pytest`. They cover the statistics (period deltas, trends, streaks, sessions, heatmap, team share), theme contrast (WCAG AA for text and outlines in light and dark, standard and higher contrast), preference migration and formats, dashboard customization, filters, the match detail and timeline, filtered export, settings export and import, and clearing data with a backup.
+- **Visual review:** every page was rendered offscreen from a copy of the 0.4 ledger (about 2,300 openings in 108 matches), in light and dark, at 1000×680 and 1600×1000. Problems found in review and fixed: the navigation rail, horizontal overflow, clipped labels, donut labels and table columns.
+- **Speed on that ledger:** window build about 1.3 s. The statistics snapshot takes 0.1–0.2 s and is reused until the data changes. A theme change takes about 2 s, because Qt re-lays out the window.
+- **Release build:** GitHub Actions builds the exe, runs the tests, and runs the packaged smoke test (bundled replay reader, icon font, every page). The run log holds the result.
+
+Not yet verified: counting during a live match (Fortnite was not running), drag-and-drop reordering and global shortcuts on a real display, and the look at other display scales.
+
+Earlier screen-detector records: [VALIDATION-0.3.md](VALIDATION-0.3.md), [VALIDATION-0.2.md](VALIDATION-0.2.md), [VALIDATION-0.1.md](VALIDATION-0.1.md).
+
+# 0.4 replay reader
+
+Date: 6 November 2026. Windows 11 x64, Fortnite build `++Fortnite+Release-43.00`.
 
 ## Method change
 

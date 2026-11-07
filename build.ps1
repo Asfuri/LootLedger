@@ -3,7 +3,7 @@ $ErrorActionPreference = 'Stop'
 Set-Location -LiteralPath $PSScriptRoot
 $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
 $env:DOTNET_NOLOGO = '1'
-$output = 'dist-v0.4'
+$output = 'dist'
 
 # 1. .NET 10 SDK for the replay reader: -Dotnet path, a project-local .dotnet, a system SDK, or a fresh local install.
 function Test-Sdk($exe) { $exe -and (Test-Path -LiteralPath $exe) -and ((& $exe --list-sdks 2>$null) -match '^10\.') }

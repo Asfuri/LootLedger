@@ -1,4 +1,3 @@
-from collections import Counter
 import csv
 from contextlib import closing
 from dataclasses import asdict
@@ -8,10 +7,13 @@ from pathlib import Path
 import sqlite3
 import uuid
 
+from . import stats
 from .replay_reader import match_key, started_at, summarize
 
 SCHEMA_VERSION = 2
 NAMESPACE = uuid.UUID("2f9c6a4e-8d1b-4e57-9b0a-6c3e1d7f5a21")
+EVENT_FIELDS = ("id", "match_id", "created", "video_time", "status", "chest_type", "amount",
+                "source", "confidence", "reason", "evidence")
 
 SCHEMA_V1 = """
     CREATE TABLE IF NOT EXISTS matches (
@@ -49,6 +51,11 @@ def schema_of(db):
     return [(kind, name, table, " ".join(sql.split())) for kind, name, table, sql in db.execute(query)]
 
 
+def _safe_cell(value):
+    # Neutralize spreadsheet formulas in user-corrected text.
+    return "'" + value if isinstance(value, str) and value.startswith(("=", "+", "-", "@")) else value
+
+
 class Store:
     def __init__(self, path):
         self.path = Path(path)
@@ -59,6 +66,7 @@ class Store:
         self.db.execute("PRAGMA synchronous=FULL")
         self.db.execute("PRAGMA foreign_keys=ON")
         self.include_broken = True
+        self._snapshot, self._snapshot_key = None, None
         self._migrate()
 
     def _migrate(self):
@@ -150,6 +158,12 @@ class Store:
         return [dict(row) for row in self.db.execute(
             "SELECT * FROM events ORDER BY created DESC, rowid DESC LIMIT ?", (limit,))]
 
+    def match_events(self, match_id):
+        """Counted openings in one match that have a time inside the replay (for the timeline)."""
+        return [dict(row) for row in self.db.execute(
+            f"SELECT e.video_time, e.chest_type, e.source FROM events e WHERE e.match_id=? AND {self._counted()} "
+            "ORDER BY e.video_time", (match_id,))]
+
     def _counted(self, alias="e"):
         """SQL condition for events that count toward totals."""
         broken = "" if self.include_broken else f" AND {alias}.source != 'replay-broken'"
@@ -181,6 +195,25 @@ class Store:
                 "best": max((m["total"] for m in completed), default=0), "types": types,
                 "review": self.db.execute("SELECT count(*) FROM events WHERE status='review'").fetchone()[0]}
 
+    def snapshot(self, session_start=None, now=None):
+        """Everything the UI shows. Rebuilt only when the data, the broken-open setting or the day changes."""
+        now = now or datetime.now().astimezone()
+        key = (self.db.execute("PRAGMA data_version").fetchone()[0], self.db.total_changes,
+               self.include_broken, now.date(), session_start)
+        if key == self._snapshot_key:
+            return self._snapshot
+        events = [stats.Ev(datetime.fromisoformat(row[0]).astimezone(), row[1], row[2], row[3], row[4])
+                  for row in self.db.execute(f"""SELECT e.created, e.amount, e.chest_type, e.source, e.match_id
+                                                 FROM events e WHERE {self._counted()}""")]
+        matches = [{"id": m["id"], "started": datetime.fromisoformat(m["started"]).astimezone(),
+                    "seconds": m["seconds"], "total": m["total"], "broken": m["broken"],
+                    "meta": json.loads(m["meta"]) if m["meta"] else None} for m in self.history()]
+        snap = stats.compute(events, matches, now, session_start, self.include_broken)
+        snap["entries"] = [{**row, "when": datetime.fromisoformat(row["created"]).astimezone()}
+                           for row in self.entries(2**31 - 1)]
+        self._snapshot, self._snapshot_key = snap, key
+        return snap
+
     # ---- Fortnite replays -------------------------------------------------------------------
 
     def replay_files(self):
@@ -205,6 +238,7 @@ class Store:
         length = float(result.get("lengthSeconds") or 0)
         mine, meta = summarize(result)
         meta["key"] = key
+        meta["complete"] = bool(result.get("ok"))
         with self.db:
             self.db.execute("""INSERT INTO matches(id,started,ended,seconds) VALUES(?,?,?,?)
                                ON CONFLICT(id) DO UPDATE SET ended=excluded.ended, seconds=excluded.seconds""",
@@ -231,60 +265,36 @@ class Store:
                            match_id=excluded.match_id, scanned=excluded.scanned""",
                         (file, size, mtime, status, match_id, utc_now()))
 
-    def dashboard(self, session_start=None, days=30):
-        """Everything the overview shows. Match figures cover matches read from replays."""
-        matches = [m for m in self.history() if m["meta"]]
-        for m in matches:
-            m["meta"] = json.loads(m["meta"])
-        events = [dict(r) for r in self.db.execute(f"SELECT created,amount,chest_type,source FROM events e WHERE {self._counted()}")]
-        total = sum(e["amount"] for e in events)
-        local_dates = Counter()
-        for e in events:
-            local_dates[datetime.fromisoformat(e["created"]).astimezone().date()] += e["amount"]
-        today = datetime.now().date()
-        per_day = [(today - timedelta(days=offset), local_dates.get(today - timedelta(days=offset), 0))
-                   for offset in range(days - 1, -1, -1)]
-        types = Counter()
-        for e in events:
-            types[e["chest_type"]] += e["amount"]
-        team, containers, teammates = Counter(), Counter(), Counter()
-        for m in matches:
-            for name, counts in m["meta"].get("team", {}).items():
-                team[name] += counts.get("opened", 0) + (counts.get("broken", 0) if self.include_broken else 0)
-            containers.update(m["meta"].get("containers", {}))
-            teammates.update(m["meta"].get("team_players", {}))
-        played = sum(m["seconds"] for m in matches)
-        replay_total = sum(m["total"] for m in matches)
-        session = [m for m in matches if session_start and datetime.fromisoformat(m["started"]) >= session_start]
-        return {
-            "player": matches[0]["meta"].get("owner") if matches else None,
-            "all": total, "today": local_dates.get(today, 0), "matches": len(matches),
-            "last": matches[0]["total"] if matches else 0, "last_match": matches[0] if matches else None,
-            "average": replay_total / len(matches) if matches else 0,
-            "best": max((m["total"] for m in matches), default=0),
-            "per_hour": replay_total * 3600 / played if played else 0,
-            "broken": sum(e["amount"] for e in events if e["source"] == "replay-broken"),
-            "types": dict(types.most_common()), "team": dict(team), "containers": dict(containers.most_common()),
-            "teammates": dict(teammates.most_common()), "team_total": sum(team.values()),
-            "per_day": per_day, "session_matches": len(session), "session_total": sum(m["total"] for m in session),
-            "files": self.db.execute("SELECT count(*) FROM replay_files").fetchone()[0],
-            "partial": sum(not m["meta"].get("complete", True) for m in matches),
-        }
+    def clear(self):
+        """Delete all matches, openings and corrections. Replay files stay recorded, so they are not read again."""
+        with self.db:
+            self.db.execute("DELETE FROM events")
+            self.db.execute("DELETE FROM match_meta")
+            self.db.execute("DELETE FROM audit")
+            self.db.execute("UPDATE replay_files SET match_id=NULL")
+            self.db.execute("DELETE FROM matches")
+        self._snapshot_key = None
 
     # ---- Export, backup, restore -----------------------------------------------------------
+
+    @staticmethod
+    def export_rows(path, rows, fields=EVENT_FIELDS):
+        """Write rows as CSV (by file extension) or JSON. Formula-like text is neutralized in CSV."""
+        path = Path(path)
+        if path.suffix.lower() == ".csv":
+            with path.open("w", newline="", encoding="utf-8-sig") as stream:
+                writer = csv.DictWriter(stream, fields)
+                writer.writeheader()
+                for row in rows:
+                    writer.writerow({field: _safe_cell(row.get(field)) for field in fields})
+        else:
+            path.write_text(json.dumps({"schema": SCHEMA_VERSION, "exported": utc_now(), "rows": rows},
+                                       indent=2, ensure_ascii=False, default=str), encoding="utf-8")
 
     def export(self, path):
         path = Path(path)
         if path.suffix.lower() == ".csv":
-            rows = self.entries(2**31 - 1)
-            with path.open("w", newline="", encoding="utf-8-sig") as stream:
-                fields = [col[1] for col in self.db.execute("PRAGMA table_info(events)")]
-                writer = csv.DictWriter(stream, fields)
-                writer.writeheader()
-                # Neutralize spreadsheet formulas in user-corrected text.
-                for row in rows:
-                    writer.writerow({k: "'" + v if isinstance(v, str) and v.startswith(("=", "+", "-", "@")) else v
-                                     for k, v in row.items()})
+            self.export_rows(path, self.entries(2**31 - 1))
         else:
             matches = self.history()
             for m in matches:
@@ -322,5 +332,6 @@ class Store:
             self.backup(safety)
             # The SQLite backup API replaces the live database transactionally, including WAL.
             source.backup(self.db)
+        self._snapshot_key = None
         self._migrate()
         return safety

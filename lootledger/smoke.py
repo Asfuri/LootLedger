@@ -1,7 +1,7 @@
 """Explicit local smoke test for the source app and the frozen Windows executable.
 
-Checks the dashboard, corrections, the bundled replay reader and, when this PC has
-Fortnite replays, reading the newest finished one into a temporary ledger.
+Checks the bundled replay reader, the icon font, every page, corrections, and (when this PC
+has a finished Fortnite replay) reading the newest one into a temporary ledger.
 """
 import json
 import os
@@ -16,10 +16,10 @@ def main(output):
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from PySide6.QtGui import QFontDatabase
     from PySide6.QtWidgets import QApplication
-    from . import replay_reader
+    from . import replay_reader, theme
     from .app import MainWindow
     from .config import Config
-    from .widgets import STYLE
+    from .prefs import Prefs
     output = Path(output).resolve()
     output.mkdir(parents=True, exist_ok=True)
     report = {"platform": platform.platform(), "python": sys.version, "frozen": bool(getattr(sys, "frozen", False)),
@@ -32,9 +32,8 @@ def main(output):
             if path.exists():
                 QFontDatabase.addApplicationFont(str(path))
         app.setStyle("Fusion")
-        app.setStyleSheet(STYLE)
-        helper = replay_reader.helper_path()
-        report["checks"]["replay_reader_bundled"] = str(helper)
+        report["checks"]["replay_reader_bundled"] = str(replay_reader.helper_path())
+        report["checks"]["icon_font_loaded"] = theme.load_icon_font() == theme.ICON_FONT
         with tempfile.TemporaryDirectory(prefix="lootledger-smoke-") as temporary:
             folder = Path(temporary)
             garbage = folder / "not-a-replay.replay"
@@ -45,6 +44,7 @@ def main(output):
             replays = sorted(replay_reader.default_folder().glob("*.replay"), key=lambda p: p.stat().st_mtime)
             finished = [p for p in replays if time.time() - p.stat().st_mtime > replay_reader.LIVE_WINDOW]
             Config(hotkey_add="", hotkey_undo="", replay_folder=str(folder / "replays")).save(folder / "config.json")
+            Prefs(animations=False).save(folder / "ui-settings.json")
             (folder / "replays").mkdir()
             if finished:
                 sample = finished[-1]
@@ -60,27 +60,24 @@ def main(output):
                 app.processEvents()
                 assert not window.scan_error, window.scan_error
                 if finished:
-                    data = window.store.dashboard()
+                    data = window.store.snapshot()
                     assert data["matches"] == 1
                     report["checks"]["real_replay"] = {"file": finished[-1].name, "your_chests": data["all"],
                                                        "broken": data["broken"], "teammates": data["team_total"]}
+                    before = data["all"]
+                    window.manual_add()
+                    assert window.store.snapshot()["all"] == before + 1
+                    window.undo()
+                    assert window.store.snapshot()["all"] == before
+                    report["checks"]["corrections"] = "passed (+1 then undo)"
                 else:
                     report["checks"]["real_replay"] = "skipped (no finished Fortnite replay on this PC)"
-                before = window.store.dashboard()["all"]
-                if finished:
-                    window.manual_add()
-                    assert window.store.dashboard()["all"] == before + 1
-                    window.undo()
-                    assert window.store.dashboard()["all"] == before
-                    report["checks"]["corrections"] = "passed (+1 then undo)"
                 window.resize(1240, 1000)
-                app.processEvents()
-                window.grab().save(str(output / "overview.png"))
-                for index, name in ((1, "matches"), (2, "openings"), (3, "settings")):
+                for index, name in enumerate(("overview", "matches", "openings", "statistics", "settings")):
                     window.navigate(index)
                     app.processEvents()
                     window.grab().save(str(output / f"{name}.png"))
-                report["checks"]["dashboard_rendered"] = "passed"
+                report["checks"]["pages_rendered"] = 5
             finally:
                 window.close()
         report["passed"] = True

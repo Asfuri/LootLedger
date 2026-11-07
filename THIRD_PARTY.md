@@ -6,6 +6,8 @@ Application code: MIT, see LICENSE. Fortnite and its trademarks belong to Epic G
 
 **.NET runtime** (Microsoft, MIT) is embedded in the self-contained `LootLedger.ReplayReader.exe`. Its `LICENSE.txt` and `ThirdPartyNotices.txt` are copied to `licenses/dotnet-runtime`. **Microsoft.Extensions.Logging.Abstractions**: MIT.
 
+**Material Symbols** icon font (Google, Apache-2.0): `lootledger/assets/fonts/MaterialSymbolsRounded.ttf`, with the licence in `LICENSE-MaterialSymbols.txt`. Source: https://github.com/google/material-design-icons. Icons are drawn from the font's names, so no icon artwork is copied.
+
 **Qt for Python / PySide6 Essentials and Shiboken** are provided under their applicable LGPL/GPL/commercial terms. The portable build dynamically bundles the native Qt libraries. Consult [Qt for Python licensing](https://doc.qt.io/qtforpython-6/licenses.html) and keep the bundled upstream notices when distributing builds. PyInstaller's licence includes its application distribution exception.
 
 The retired screen detector, kept in source only, used OpenCV (Apache-2.0), NumPy (BSD-3-Clause), MSS (MIT), PyWinRT (MIT), ONNX Runtime (MIT), and a model fine-tuned from TorchVision SSDLite weights (BSD-3-Clause; see `lootledger/assets/MODEL-NOTICE.txt`). These are not part of the v0.4 desktop build.
