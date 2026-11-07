@@ -184,5 +184,5 @@ def test_restores_backups_from_previous_version(tmp_path):
     assert store.stats()["all"] == 2
     assert store.snapshot()["all"] == 2  # restoring invalidates the cached snapshot
     assert store.replay_files() == {}  # replays are read again after restoring an older ledger
-    assert store.db.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert store.db.execute("PRAGMA user_version").fetchone()[0] == 3
     store.close()

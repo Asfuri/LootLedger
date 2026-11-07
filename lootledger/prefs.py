@@ -9,16 +9,21 @@ WIDGETS = {  # widget id -> default width in dashboard columns
     **{f"stat:{key}": 1 for key in ("all", "today", "week", "month", "last", "avg", "best",
                                      "per_hour", "playtime", "matches", "session")},
     "trend": 2, "types": 2, "modes": 1, "heat": 2, "records": 1, "teammates": 1, "broken": 1,
+    "health": 2, "sessions": 1, "goals": 1, "trophies": 2, "compare": 2,
 }
 DEFAULT_LAYOUT = ("live", "stat:all", "stat:today", "stat:week", "stat:last", "stat:avg", "stat:per_hour",
-                  "trend", "types", "records", "teammates")
+                  "trend", "types", "goals", "sessions", "records", "teammates")
 RANGES = (7, 30, 90, 0)  # days; 0 means all time
 CHOICES = {
     "theme": ("light", "dark", "system"), "corners": ("sharp", "default", "round"),
     "density": ("compact", "comfortable"), "font_scale": ("S", "M", "L", "XL"),
     "chart_style": ("bar", "line", "area"), "background": ("solid", "tonal"),
     "date_format": ("dmy", "mdy", "iso"), "separators": (",", ".", " ", ""), "playtime": ("hm", "decimal"),
+    "motion": ("full", "reduced", "off"), "overlay_size": ("S", "M", "L"),
+    "overlay_corner": ("free", "top_left", "top_right", "bottom_left", "bottom_right"),
 }
+RANGES_INT = {"live_seconds": (1, 10), "overlay_opacity": (30, 100), "volume": (0, 100),
+              "goal_daily": (0, 10000), "goal_weekly": (0, 100000)}  # inclusive bounds
 HEX = re.compile(r"#[0-9a-fA-F]{6}")
 
 
@@ -48,7 +53,7 @@ class Prefs:
     density: str = "comfortable"
     font_scale: str = "M"
     chart_style: str = "bar"
-    animations: bool = True
+    motion: str = "full"  # full, reduced (short fades only) or off
     background: str = "solid"
     time_24h: bool = True
     date_format: str = "dmy"
@@ -56,6 +61,29 @@ class Prefs:
     playtime: str = "hm"
     default_range: int = 30
     layout: list = field(default_factory=default_layout)
+    # Live match and the pop-out counter
+    live_tracking: bool = True
+    live_seconds: int = 2
+    overlay: bool = False
+    overlay_opacity: int = 90
+    overlay_size: str = "M"
+    overlay_corner: str = "free"
+    overlay_click_through: bool = False
+    overlay_teammates: bool = True
+    overlay_geometry: list = field(default_factory=list)  # x, y, width, height once moved
+    hotkey_overlay: str = "Ctrl+Alt+F10"
+    sound: bool = False
+    volume: int = 50
+    window_geometry: list = field(default_factory=list)  # x, y, width, height of the main window
+    window_maximized: bool = False
+    # Goals, trophies and the colour scheme for chest types
+    goal_daily: int = 0  # chests per day; 0 means no goal
+    goal_weekly: int = 0
+    celebrate: bool = True  # in-app celebration when a goal is reached or a trophy unlocks
+    celebrated: list = field(default_factory=list)  # goals already celebrated, e.g. "day:2026-11-07"
+    trophies: list = field(default_factory=list)  # trophy ids already unlocked (so each is announced once)
+    colorblind: bool = False
+    seen_version: str = ""  # for "What's new" after an update
 
     @classmethod
     def from_dict(cls, data):
@@ -74,7 +102,15 @@ class Prefs:
                 continue
             if item.name == "default_range" and value not in RANGES:
                 continue
+            if item.name in RANGES_INT and not RANGES_INT[item.name][0] <= value <= RANGES_INT[item.name][1]:
+                continue
+            if item.name in ("celebrated", "trophies") and not all(isinstance(v, str) for v in value):
+                continue
+            if item.name.endswith("_geometry") and not (len(value) == 4 and all(type(v) is int for v in value)):
+                continue
             values[item.name] = value
+        if "motion" not in data and data.get("animations") is False:
+            values["motion"] = "off"  # settings saved before the motion levels existed
         if "layout" in data:
             values["layout"] = normalize_layout(data["layout"])
         return cls(**values)
@@ -91,7 +127,7 @@ class Prefs:
             return cls()  # unreadable preferences must never stop the app; they are not ledger data
 
     def to_dict(self):
-        return {"version": 1, **asdict(self)}
+        return {"version": 1, **asdict(self), "animations": self.motion != "off"}  # read by LootLedger 0.6 and older
 
     def save(self, path):
         path = Path(path)

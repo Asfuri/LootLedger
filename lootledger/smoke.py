@@ -44,7 +44,7 @@ def main(output):
             replays = sorted(replay_reader.default_folder().glob("*.replay"), key=lambda p: p.stat().st_mtime)
             finished = [p for p in replays if time.time() - p.stat().st_mtime > replay_reader.LIVE_WINDOW]
             Config(hotkey_add="", hotkey_undo="", replay_folder=str(folder / "replays")).save(folder / "config.json")
-            Prefs(animations=False).save(folder / "ui-settings.json")
+            Prefs(motion="off").save(folder / "ui-settings.json")
             (folder / "replays").mkdir()
             if finished:
                 sample = finished[-1]

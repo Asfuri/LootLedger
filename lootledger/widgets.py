@@ -1,7 +1,9 @@
 """Material 3 widgets: cards, buttons, switches, segmented controls, snackbar, charts and the dashboard grid."""
-from PySide6.QtCore import QMimeData, QPointF, QRectF, QTimer, QVariantAnimation, Qt, Signal
+from PySide6.QtCore import (QEasingCurve, QEvent, QMimeData, QObject, QPoint, QPointF, QPropertyAnimation, QRectF,
+                            QTimer, QVariantAnimation, Qt, Signal)
 from PySide6.QtGui import QColor, QDrag, QFont, QPainter, QPainterPath, QPen
-from PySide6.QtWidgets import (QAbstractButton, QAbstractItemView, QApplication, QButtonGroup, QFrame, QGridLayout,
+from PySide6.QtWidgets import (QAbstractButton, QAbstractItemView, QApplication, QButtonGroup, QFrame,
+                               QGraphicsOpacityEffect, QGridLayout,
                                QHBoxLayout, QHeaderView, QLabel, QProgressBar, QPushButton, QTableView, QToolTip,
                                QVBoxLayout, QWidget)
 
@@ -51,6 +53,7 @@ def clear_layout(layout):
     while layout.count():
         item = layout.takeAt(0)
         if item.widget():
+            item.widget().hide()  # deleteLater waits for the event loop; until then the old text would still paint
             item.widget().deleteLater()
         elif item.layout():
             clear_layout(item.layout())
@@ -67,6 +70,60 @@ def fill(combo, items):
     combo.blockSignals(False)
 
 
+def shrinkable(*widgets):
+    """Filter controls that may get narrower than their longest item, so filter bars fit small windows."""
+    for widget in widgets:
+        if hasattr(widget, "setMinimumContentsLength"):
+            widget.setSizeAdjustPolicy(widget.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            widget.setMinimumContentsLength(7)
+        else:
+            widget.setMinimumWidth(90)
+
+
+def wrapped(widget):
+    widget.setWordWrap(True)
+    return widget
+
+
+class _FitColumns(QObject):
+    def eventFilter(self, watched, event):
+        if event.type() in (QEvent.Type.Resize, QEvent.Type.Show):
+            fit_columns(self.parent())  # the view, or its viewport when a scrollbar appears or goes
+        return False
+
+
+def fit_columns(view):
+    """Columns as wide as their contents when they fit; otherwise they share the width and long text elides,
+    so a table never scrolls sideways."""
+    header = view.horizontalHeader()
+    needs = [min(max(view.sizeHintForColumn(c), header.sectionSizeHint(c)), 280) for c in range(header.count())]
+    if needs:
+        needs[-1] = min(needs[-1], 120)  # the last column stretches to fill whatever is left
+    room = view.viewport().width()
+    if sum(needs) <= room:
+        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(header.count() - 1, QHeaderView.ResizeMode.Interactive)  # fills what is left
+        return
+    # Narrow: the first column (what the row is) keeps its width if it can; the others shrink by the same share.
+    header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+    first = min(needs[0], room * 35 // 100)
+    rest = sum(needs[1:]) or 1
+    widths = [first] + [max(36, need * (room - first) // rest) for need in needs[1:]]
+    widths[widths.index(max(widths))] -= max(0, sum(widths) - room)  # the 36 px floor can overshoot a little
+    for column, width in enumerate(widths):
+        header.resizeSection(column, width)
+
+
+def autofit(view):
+    """Refit the columns whenever the table is resized or shown (call fit_columns after new rows too)."""
+    view._fit = _FitColumns(view)
+    view.installEventFilter(view._fit)
+    view.viewport().installEventFilter(view._fit)
+    view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    view.setTextElideMode(Qt.TextElideMode.ElideRight)
+    return view
+
+
 def make_table():
     view = QTableView()
     view.verticalHeader().hide()
@@ -79,7 +136,7 @@ def make_table():
     view.horizontalHeader().setResizeContentsPrecision(60)  # measure columns from the first rows only; thousands of rows would stall restyling
     view.horizontalHeader().setStretchLastSection(True)
     view.setMinimumHeight(160)
-    return view
+    return autofit(view)
 
 
 def bar_rows(layout, rows):
@@ -95,16 +152,137 @@ def bar_rows(layout, rows):
             bar.setStyleSheet(f"QProgressBar::chunk {{ background: {color}; border-radius: 4px; }}")
         value_label = label(text, "muted")
         value_label.setWordWrap(True)
-        layout.addWidget(label(name), index, 0)
+        layout.addWidget(wrapped(label(name)), index, 0)
         layout.addWidget(bar, index, 1)
         layout.addWidget(value_label, index, 2)
     layout.setColumnStretch(1, 1)
+
+
+EMPHASIZED = QEasingCurve(QEasingCurve.Type.BezierSpline)  # Material 3 "emphasized decelerate"
+EMPHASIZED.addCubicBezierSegment(QPointF(.05, .7), QPointF(.1, 1), QPointF(1, 1))
+
+
+def draw_in(widget, duration=700):
+    """Run widget.progress from 0 to 1 so a chart draws in; jump straight to 1 unless motion is Full."""
+    if not hasattr(widget, "_draw"):
+        widget._draw = QVariantAnimation(widget)
+        widget._draw.setStartValue(0.0)
+        widget._draw.setEndValue(1.0)
+        widget._draw.setEasingCurve(EMPHASIZED)
+        widget._draw.valueChanged.connect(lambda value: (setattr(widget, "progress", value), widget.update()))
+    widget._draw.stop()
+    widget.progress = 0.0 if theme.CURRENT.full_motion else 1.0
+    if theme.CURRENT.full_motion:
+        widget._draw.setDuration(duration)
+        widget._draw.start()
+    widget.update()
+
+
+def fade_in(widget, delay=0, duration=260):
+    """Opacity 0 -> 1 after a delay (staggered entrances). The effect is removed when done, so painting stays cheap."""
+    if not theme.CURRENT.full_motion:
+        return
+    effect = QGraphicsOpacityEffect(widget)
+    effect.setOpacity(0.0)
+    widget.setGraphicsEffect(effect)
+    anim = QPropertyAnimation(effect, b"opacity", widget)
+    anim.setDuration(duration)
+    anim.setStartValue(0.0)
+    anim.setEndValue(1.0)
+    anim.setEasingCurve(EMPHASIZED)
+    anim.finished.connect(lambda: widget.setGraphicsEffect(None))
+    QTimer.singleShot(delay, anim.start)
+
+
+def round_pen(color, width):
+    pen = QPen(color, width)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)  # QPen() takes no cap keyword in PySide6
+    return pen
+
+
+class Ring(QWidget):
+    """Progress towards a goal: an arc that sweeps to its share, the numbers in the middle."""
+
+    def __init__(self):
+        super().__init__()
+        self.share, self.text, self.caption, self.progress = 0.0, "", "", 1.0
+        self.setMinimumSize(110, 110)
+
+    def set_value(self, share, text, caption):
+        if (share, text) != (self.share, self.text):
+            self.share, self.text, self.caption = share, text, caption
+            self.setAccessibleName(f"{text} {caption}")
+            draw_in(self)
+        self.update()
+
+    def paintEvent(self, event):
+        c = theme.CURRENT.c
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        side = min(self.width(), self.height()) - 12
+        rect = QRectF((self.width() - side) / 2, (self.height() - side) / 2, side, side)
+        painter.setPen(round_pen(QColor(c["surface_container_highest"]), 10))
+        painter.drawArc(rect, 0, 360 * 16)
+        if self.share:
+            painter.setPen(round_pen(QColor(c["primary"]), 10))
+            painter.drawArc(rect, 90 * 16, round(-360 * 16 * self.share * self.progress))
+        painter.setPen(QColor(c["on_surface"]))
+        font = QFont(painter.font())
+        font.setPixelSize(max(12, round(side * .2)))
+        font.setWeight(QFont.Weight.DemiBold)
+        painter.setFont(font)
+        painter.drawText(rect.adjusted(0, -side * .08, 0, -side * .08), Qt.AlignmentFlag.AlignCenter, self.text)
+        font.setPixelSize(max(10, round(side * .1)))
+        font.setWeight(QFont.Weight.Normal)
+        painter.setFont(font)
+        painter.setPen(QColor(c["on_surface_variant"]))
+        painter.drawText(rect.adjusted(0, side * .22, 0, side * .22), Qt.AlignmentFlag.AlignCenter, self.caption)
+
+
+class Pulse(QWidget):
+    """A status dot. It breathes while a match is live; with motion off it stays solid."""
+
+    def __init__(self, size=12):
+        super().__init__()
+        self.setFixedSize(size, size)
+        self.color, self.level = QColor("#888"), 1.0
+        self.anim = QVariantAnimation(self)
+        self.anim.setStartValue(1.0)
+        self.anim.setKeyValueAt(.5, .3)
+        self.anim.setEndValue(1.0)
+        self.anim.setDuration(1400)
+        self.anim.setLoopCount(-1)
+        self.anim.valueChanged.connect(self._step)
+
+    def _step(self, value):
+        self.level = value
+        self.update()
+
+    def set_color(self, color, pulsing):
+        self.color = QColor(color)
+        if pulsing and theme.CURRENT.full_motion:
+            if self.anim.state() != QVariantAnimation.State.Running:
+                self.anim.start()
+        else:
+            self.anim.stop()
+            self.level = 1.0
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        color = QColor(self.color)
+        color.setAlphaF(self.level)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(color)
+        painter.drawEllipse(QRectF(1, 1, self.width() - 2, self.height() - 2))
 
 
 class Card(QFrame):
     """A filled M3 card with a title row. Editing tools (drag, width, remove) show only on the Overview page."""
     removed = Signal(str)
     resized = Signal(str, int)
+    moved = Signal(str, int)  # -1 earlier, +1 later: the keyboard alternative to dragging
 
     def __init__(self, title, icon=None, accent=False):
         super().__init__()
@@ -130,7 +308,10 @@ class Card(QFrame):
         self.handle = DragHandle(self)
         self.size_button = icon_button("zoom_out_map", "Change width", lambda: self.resized.emit(self.key, 3 - self.span))
         self.remove_button = icon_button("close", "Remove from dashboard", lambda: self.removed.emit(self.key))
-        for widget in (self.handle, self.size_button, self.remove_button):
+        earlier = icon_button("arrow_back", "Move earlier", lambda: self.moved.emit(self.key, -1))
+        later = icon_button("arrow_forward", "Move later", lambda: self.moved.emit(self.key, 1))
+        self.earlier, self.later = earlier, later
+        for widget in (self.handle, earlier, later, self.size_button, self.remove_button):
             tools.addWidget(widget)
         self.tools.hide()
         head.addWidget(self.tools)
@@ -144,6 +325,15 @@ class Card(QFrame):
 
     def refresh(self, ctx):
         """Subclasses redraw their content from ctx.snap (see panels.py)."""
+
+    def event(self, event):
+        result = super().event(event)
+        if event.type() in (QEvent.Type.LayoutRequest, QEvent.Type.Resize) and self.width() > 0:
+            # Grids don't ask for height-for-width, so wrapped text would overflow narrow cards: reserve it.
+            need = self.layout().heightForWidth(self.width())
+            if need > 0 and need != self.minimumHeight():
+                self.setMinimumHeight(need)
+        return result
 
 
 class DragHandle(QPushButton):
@@ -186,6 +376,11 @@ class DashGrid(QWidget):
         self.grid = QGridLayout(self)
         self.grid.setContentsMargins(0, 0, 0, 0)
         self.grid.setSpacing(theme.CURRENT.sp["m"])
+        self.marker = QFrame(self)  # shows where a dragged card will land
+        self.marker.setObjectName("dropMarker")
+        self.marker.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.marker.hide()
+        self.entered = False
 
     def set_cards(self, cards):
         keep = set(cards)
@@ -196,6 +391,10 @@ class DashGrid(QWidget):
         for card in self.cards:
             card.setParent(self)
         self.reflow(force=True)
+        if not self.entered and self.cards:
+            self.entered = True  # first fill only: cards arrive one after another instead of all at once
+            for index, card in enumerate(self.cards):
+                fade_in(card, delay=min(index, 10) * 40)
 
     def reflow(self, force=False):
         gap = self.grid.spacing()
@@ -223,9 +422,21 @@ class DashGrid(QWidget):
         if event.mimeData().hasText() and event.mimeData().text().startswith(DRAG_PREFIX):
             event.acceptProposedAction()
 
-    dragMoveEvent = dragEnterEvent
+    def dragMoveEvent(self, event):
+        self.dragEnterEvent(event)
+        target = self.childAt(event.position().toPoint())
+        while target is not None and target not in self.cards:
+            target = target.parentWidget()
+        if target is not None:
+            self.marker.setGeometry(target.geometry())
+            self.marker.show()
+            self.marker.raise_()
+
+    def dragLeaveEvent(self, event):
+        self.marker.hide()
 
     def dropEvent(self, event):
+        self.marker.hide()
         key = event.mimeData().text()[len(DRAG_PREFIX):]
         target = self.childAt(event.position().toPoint())
         while target is not None and target not in self.cards:
@@ -313,16 +524,35 @@ class Snackbar(QFrame):
         self.hide()
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
-        self.timer.timeout.connect(self.hide)
+        self.timer.timeout.connect(self.leave)
 
     def show_text(self, text, ms=3500):
         self.text.setText(text)
         self.adjustSize()
         parent = self.parentWidget()
-        self.move((parent.width() - self.width()) // 2, parent.height() - self.height() - 24)
+        end = QPoint((parent.width() - self.width()) // 2, parent.height() - self.height() - 24)
+        arriving = theme.CURRENT.motion and not self.isVisible()
         self.show()
         self.raise_()
+        self.slide(end + QPoint(0, 24) if arriving else end, end)
         self.timer.start(ms)
+
+    def slide(self, start, end, then=None):
+        self.anim = QPropertyAnimation(self, b"pos", self)
+        self.anim.setDuration(220 if theme.CURRENT.motion and start != end else 0)
+        self.anim.setStartValue(start)
+        self.anim.setEndValue(end)
+        self.anim.setEasingCurve(EMPHASIZED)
+        if then:
+            self.anim.finished.connect(then)
+        self.anim.start()
+
+    def leave(self):
+        """Slide down and out, instead of vanishing."""
+        if not theme.CURRENT.motion:
+            self.hide()
+            return
+        self.slide(self.pos(), self.pos() + QPoint(0, self.height() + 24), self.hide)
 
 
 class SeriesChart(QWidget):
@@ -437,12 +667,15 @@ class Donut(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.slices, self.center, self.caption = [], "", ""
+        self.slices, self.center, self.caption, self.progress = [], "", "", 1.0
         self.setMinimumSize(150, 150)
 
     def set_slices(self, slices, center, caption):
+        changed = list(slices) != self.slices
         self.slices, self.center, self.caption = list(slices), center, caption
         self.setAccessibleDescription(f"{center} {caption}")
+        if changed:
+            draw_in(self)  # segments sweep round when the numbers change
         self.update()
 
     def paintEvent(self, event):
@@ -455,7 +688,7 @@ class Donut(QWidget):
         if total:
             angle = 90 * 16
             for _, value, color in self.slices:
-                span = round(-360 * 16 * value / total)
+                span = round(-360 * 16 * value / total * self.progress)
                 painter.setPen(QPen(QColor(c["surface_container_high"]), 2))
                 painter.setBrush(QColor(color))
                 painter.drawPie(rect, angle, span)
@@ -541,12 +774,13 @@ class Sparkline(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.values = []
+        self.values, self.progress = [], 1.0
         self.setFixedHeight(40)
 
     def set_values(self, values):
-        self.values = list(values)
-        self.update()
+        if list(values) != self.values:
+            self.values = list(values)
+            draw_in(self, 900)  # the line draws from left to right
 
     def paintEvent(self, event):
         c = theme.CURRENT.c
@@ -556,6 +790,7 @@ class Sparkline(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         width, height = self.width(), self.height()
+        painter.setClipRect(QRectF(0, 0, width * self.progress, height))
         step = width / (len(values) - 1)
 
         def y_of(value):
@@ -582,13 +817,15 @@ class Timeline(QWidget):
 
     def __init__(self, empty):
         super().__init__()
-        self.empty, self.marks, self.duration = empty, [], 1.0
+        self.empty, self.marks, self.duration, self.saved = empty, [], 1.0, None
         self.setMinimumHeight(72)
         self.setMouseTracking(True)
 
-    def set_marks(self, marks, duration):
+    def set_marks(self, marks, duration, saved=None):
+        """saved: during a live match, how much of the elapsed time Fortnite has written to the replay."""
         self.marks = sorted(marks, key=lambda mark: mark[0])
         self.duration = max(float(duration or 0), 1.0)
+        self.saved = saved
         self.update()
 
     def _x(self, offset):
@@ -600,7 +837,17 @@ class Timeline(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         base = self.height() - 22
-        if not self.marks:
+        if not self.marks and self.saved is not None:  # live: the axis grows, the saved part is filled
+            painter.setPen(round_pen(QColor(c["outline_variant"]), 4))
+            painter.drawLine(QPointF(self.PAD, base), QPointF(self.width() - self.PAD, base))
+            painter.setPen(round_pen(QColor(c["error"]), 4))
+            painter.drawLine(QPointF(self.PAD, base), QPointF(self._x(self.saved), base))
+            painter.setPen(QColor(c["on_surface_variant"]))
+            painter.drawText(QRectF(self.PAD, base + 4, 80, 18), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, "0:00")
+            painter.drawText(QRectF(self.width() - self.PAD - 120, base + 4, 120, 18),
+                             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, elapsed(self.duration))
+            return
+        elif not self.marks:
             painter.setPen(QColor(c["on_surface_variant"]))
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.empty)
             return

@@ -27,6 +27,11 @@ ACCENTS = ("primary", "secondary", "tertiary", "error")
 SIZES = {"display": 44, "headline": 24, "title": 16, "body": 14, "label": 12, "icon": 22}
 SPACE = {"xs": 4, "s": 8, "m": 12, "l": 16, "xl": 24}
 RADII = {"sm": 8, "card": 20, "lg": 28}
+# Chest types keep one colour everywhere, whatever the accent: Chest gold, Rare blue, Relic purple, Buried green,
+# Sprite poster pink, anything else grey. The colourblind option uses the Okabe-Ito palette instead.
+RARITY_HUES = (75, 250, 300, 150, 350)
+OKABE_ITO = {False: ("#c47f00", "#0072b2", "#b5578f", "#00845f", "#d55e00", "#7a7a7a"),
+             True: ("#e69f00", "#56b4e9", "#cc79a7", "#009e73", "#f0e442", "#a0a0a0")}
 
 # Material tone numbers per role (0 black, 100 white).
 LIGHT = dict(
@@ -72,6 +77,7 @@ class Tokens:
     background: str
     motion: bool
     family: str
+    full_motion: bool = True  # False at the Reduced level: short fades only, no count-ups or loops
 
     def type_color(self, name):
         return self.chart[TYPE_ORDER.index(name)] if name in TYPE_ORDER else self.chart[-1]
@@ -162,7 +168,7 @@ def _palette_of(name):
     return "neutral_variant" if name in ("on_surface_variant", "outline", "outline_variant") else "neutral"
 
 
-def build(prefs, dark, motion, family=ICON_FONT):
+def build(prefs, dark, motion, family=ICON_FONT, full=True):
     """Create the tokens for these preferences and make them the ones painted widgets use."""
     global CURRENT
     lab = _to_oklab(hex_to_rgb(prefs.seed))
@@ -175,11 +181,13 @@ def build(prefs, dark, motion, family=ICON_FONT):
     density = DENSITY[prefs.density]
     CURRENT = Tokens(
         dark=dark, c=colors,
-        chart=tuple(tone(hue + i * math.pi / 3, .13, 75 if dark else 45) for i in range(6)),
+        chart=OKABE_ITO[dark] if prefs.colorblind else tuple(
+            tone(math.radians(h), .13, 75 if dark else 45) for h in RARITY_HUES) + (tone(0, 0, 70 if dark else 50),),
         px={k: round(v * FONT_SCALES[prefs.font_scale]) for k, v in SIZES.items()},
         sp={k: max(2, round(v * density)) for k, v in SPACE.items()},
         r={k: round(v * CORNERS[prefs.corners]) for k, v in RADII.items()},
-        btn_h=round(40 * density), background=prefs.background, motion=motion, family=family)
+        btn_h=round(40 * density), background=prefs.background, motion=motion, family=family,
+        full_motion=motion and full)
     return CURRENT
 
 
@@ -305,6 +313,10 @@ def stylesheet(T):
                   gridline-color: transparent; selection-background-color: {secondary};
                   selection-color: {on_secondary}; }}
     QTableView::item {{ padding: 6px 8px; border: none; }}
+    QTableView::item:hover {{ background: {state}; }}
+    QTableView::item:selected {{ background: {secondary}; color: {on_secondary}; }}
+    QTableView:focus {{ border: 2px solid {primary}; }}
+    QFrame#dropMarker {{ border: 3px dashed {primary}; border-radius: {r['card']}px; background: {primary_state}; }}
     QHeaderView {{ background: {c['surface_container_low']}; }}
     QHeaderView::section {{ background: {c['surface_container_low']}; color: {c['on_surface_variant']};
                             border: none; border-bottom: 1px solid {c['outline_variant']}; padding: 8px;

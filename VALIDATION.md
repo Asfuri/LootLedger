@@ -1,5 +1,34 @@
 # LootLedger validation
 
+# 0.7 live match, motion, UI fixes and new features (not yet released)
+
+Date: 7 November 2026. Windows 11, with Fortnite running in the lobby. No match was played during development.
+
+What the replay files allow during a match, checked on the 100 finished replays on this PC (read-only):
+
+- Every finished replay is encrypted and stores its 32-byte key in the header. Fortnite writes match data in chunks about every 20 s (median gap 20.0 s, about 90 KB each). The game's own log agrees (`httpReplay.ChunkUploadDelayInSeconds:20`).
+- The vendored parser, following Unreal's own reader, rejects a replay that is still marked live and encrypted, because the key is written only when the replay is finalized. So the chests of a match can't be read until it ends. LootLedger does not try to get around this: doing so would mean touching the game.
+- **Not observed:** a real in-progress replay. A sampler watched the Demos folder for about three hours, but no match was played. If Fortnite does leave the key in a live replay, LootLedger reads it and shows the count during the match; that path is tested only with fixture data.
+
+Verified, and how:
+
+- **Live hand-over:** `scripts/simulate_live.py` writes a real replay the way Fortnite records it (header marked live, no key, chunks appended over time) into a temporary folder, then finalizes it. The tracker goes live → saving → ended, the scan never decodes or records the locked file, and the count equals a direct import (36 = 36 = 36). A second full re-read adds nothing. The finished replay was read 2.9–3.3 s after it was finalized. Unit tests cover the header reader, the state machine and the scan.
+- **Paint crash fixed:** the goals ring and the live timeline used `QPen(..., cap=...)`, which PySide6 rejects. A full repaint of the Statistics page crashed the process. A test now paints every page completely and fails on any paint error.
+- **Small and large windows:** every page was rendered with real Windows fonts (nothing shown on screen) at 900×600, 1240×860 and 2560×1080, in light and dark, plus XL text at 900×600 and compact density with S text. Fixed: tables that scrolled sideways (columns now fit the width), filter bars wider than the window, the match detail squeezing the table (now a splitter, and the detail scrolls), clipped labels, ghost text from cleared cards, cards too short for wrapped text, the Teammates table and export buttons, and the squad share bars. A test checks the tables fit at 860×580.
+- **Dashboard editing:** the drop handler is tested with a synthetic drop event, and the new keyboard buttons (move earlier and later) are tested.
+- **Global shortcuts:** a shortcut another app already owns is now reported and skipped, and the others keep working (tested by making registration fail). The shortcut list (press ? or F1) shows each one's state.
+- **Window and counter:** size, position and maximized state are restored after a restart (tested). Quitting no longer switches the pop-out counter off.
+- **Settings and ledger:** old settings files load, and the old Animations switch becomes the Off level. Ledgers move to schema 3 (a new `match_notes` table) after an automatic backup in `backups/`. Tested on a v2 ledger. Older versions still open a v3 ledger and ignore the new table.
+- **Tests:** 173 pass with `pytest`. The packaged-style smoke test passes with 6 pages.
+
+Not yet verified:
+
+- **Live match:** counting during a real live match and the live states with a real match.
+- **On a real display:** the pop-out counter over Fortnite, and click-through.
+- **Real input:** mouse drag-and-drop on a real display, and global shortcuts pressed while Fortnite has focus.
+- **Motion:** that animations keep a steady frame rate on your hardware. Qt Widgets paint on the CPU, so "GPU-friendly" can't be promised; animations only move and fade, and the large tables are not animated.
+- **Not built:** staggered table rows, cards gliding to new positions after a reflow, container-transform dialogs, loading skeletons and animated empty states.
+
 # 0.6 teammates
 
 Date: 7 November 2026.

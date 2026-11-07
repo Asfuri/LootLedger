@@ -76,10 +76,20 @@ def test_icon_font_and_its_licence_are_bundled():
 def test_unknown_preference_keys_and_bad_values_fall_back_to_defaults(tmp_path):
     path = tmp_path / "ui-settings.json"
     path.write_text(json.dumps({"version": 1, "theme": "neon", "seed": "red", "density": "compact",
-                                "default_range": 13, "animations": "yes", "future_setting": 5}), encoding="utf-8")
+                                "default_range": 13, "motion": "warp", "live_seconds": 99,
+                                "overlay_geometry": [1, "x"], "future_setting": 5}), encoding="utf-8")
     prefs = Prefs.read(path)
     assert prefs.theme == "system" and prefs.seed == "#e8b04f" and prefs.default_range == 30
-    assert prefs.animations is True and prefs.density == "compact"
+    assert prefs.motion == "full" and prefs.density == "compact"
+    assert prefs.live_seconds == 2 and prefs.overlay_geometry == []
+
+
+def test_old_animations_switch_becomes_a_motion_level(tmp_path):
+    path = tmp_path / "ui-settings.json"
+    path.write_text(json.dumps({"version": 1, "animations": False}), encoding="utf-8")
+    assert Prefs.read(path).motion == "off"
+    Prefs.read(path).save(path)
+    assert json.loads(path.read_text(encoding="utf-8"))["animations"] is False  # older versions still read it
 
 
 def test_corrupt_settings_file_is_ignored(tmp_path):

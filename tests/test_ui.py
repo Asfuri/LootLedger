@@ -1,4 +1,5 @@
 import json
+import time
 import os
 from pathlib import Path
 import sqlite3
@@ -25,7 +26,7 @@ def sample():
 def window(tmp_path):
     app = QApplication.instance() or QApplication([])
     Config(hotkey_add="", hotkey_undo="", replay_folder=str(tmp_path / "replays")).save(tmp_path / "config.json")
-    Prefs(animations=False).save(tmp_path / "ui-settings.json")
+    Prefs(motion="off").save(tmp_path / "ui-settings.json")
     win = MainWindow(tmp_path, scan_on_start=False)
     win.show()
     app.processEvents()
@@ -54,17 +55,39 @@ def test_overview_and_statistics_report_the_replay_totals(window):
 
 
 def test_live_match_feeds_the_current_card_and_the_pop_out_counter(window):
-    live = sample()
+    live_card = card(window.overview_grid, "live")
+    window.tracker.state, window.tracker.started = "live", time.time() - 75
+    window.tracker.facts = {"live": True, "locked": True, "recorded": 60.0, "chunks": 4}
+    window.on_scan_finished({"file": "x.replay", "live": True, "locked": True, "events": []}, None)
+    assert live_card.count.text() == "…" and "encrypts" in live_card.line.text()  # no invented numbers
+    assert live_card.state.text().startswith("Live · 1:1")
+    assert "counted when it ends" in window.status.text()
+    assert window.overlay_count.text() == "…"
+    live = sample()  # if Fortnite ever leaves the replay readable while recording, the count shows live
     live["events"] = live["events"][:40]
     expected = len(replay_reader.summarize(live)[0])
+    window.tracker.facts = {"live": True, "locked": False, "recorded": 60.0, "chunks": 4}
     window.on_scan_finished(live, None)
     assert window.live_info["count"] == expected
-    assert card(window.overview_grid, "live").count.text() == f"{expected}"
-    assert "Match in progress" in window.status.text()
+    assert live_card.count.text() == f"{expected}"
     assert window.overlay_count.text() == f"{expected}"
+    window.tracker.state = "idle"
     window.on_scan_finished(None, "Replay reader failed: test")
-    assert card(window.overview_grid, "live").count.text() == "–"
+    assert live_card.count.text() == "–"
     assert "Replay reader failed" in window.status.text()
+
+
+def test_finished_live_match_is_handed_to_the_import_and_shown_once(window, tmp_path):
+    folder = Path(window.config.replay_folder)
+    folder.mkdir()
+    (folder / "a.replay").write_bytes(b"x")
+    window.tracker.state, window.tracker.file = "saving", folder / "a.replay"
+    window.store.import_replay(sample(), "a.replay", 10, 1.0)  # what the scan does with the finished replay
+    window.on_scan_finished(None, None)
+    live_card = card(window.overview_grid, "live")
+    assert window.tracker.state == "ended" and live_card.count.text() == "36"
+    assert "+36" == live_card.pop.text() and "Teammates:" in live_card.detail.text()
+    assert window.store.snapshot()["all"] == 36  # the live view never writes to the ledger
 
 
 def test_corrections_undo_and_the_broken_open_switch(window):

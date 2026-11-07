@@ -199,7 +199,7 @@ def test_export_rows_have_the_documented_fields(tmp_path):
 def window(tmp_path):
     app = QApplication.instance() or QApplication([])
     Config(hotkey_add="", hotkey_undo="", replay_folder=str(tmp_path / "replays")).save(tmp_path / "config.json")
-    Prefs(animations=False).save(tmp_path / "ui-settings.json")
+    Prefs(motion="off").save(tmp_path / "ui-settings.json")
     win = MainWindow(tmp_path, scan_on_start=False)
     win.show()
     app.processEvents()

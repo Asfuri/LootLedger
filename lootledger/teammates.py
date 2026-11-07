@@ -4,14 +4,15 @@ from datetime import timedelta
 from pathlib import Path
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Qt, Signal
-from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView,
+from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
                                QPushButton, QSpinBox, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from . import stats, theme
 from .prefs import RANGES, number, short_date, when
 from .store import Store
 from .stats import tag
-from .widgets import SeriesChart, bar_rows, clear_layout, fill, label, make_table
+from .widgets import (SeriesChart, autofit, bar_rows, clear_layout, fill, fit_columns, icon_button, label,
+                      make_table, shrinkable)
 
 HEADERS = ("Player", "Matches", "Chests", "Per match", "Searched", "Broken", "Rare+", "Best")  # Rare+ = rare, relic or buried
 EXPORT_FIELDS = ("name", "you", "bot", "matches", "chests", "per_match", "searched", "broken_open",
@@ -100,18 +101,15 @@ class TeammatesPanel(QWidget):
         self.minimum.setRange(0, 999)
         self.minimum.setSpecialValueText("Any number of matches")
         self.minimum.setPrefix("At least ")
-        self.minimum.setMinimumWidth(170)
+        shrinkable(self.mode, self.range, self.minimum)
         for widget in (self.mode, self.range, self.minimum):
             bar.addWidget(widget)
         self.mode.currentIndexChanged.connect(self.apply)
         self.range.currentIndexChanged.connect(self.apply)
         self.minimum.valueChanged.connect(self.apply)
         bar.addStretch(1)
-        for text, suffix in (("Export CSV", ".csv"), ("Export JSON", ".json")):
-            button = QPushButton(text)
-            button.setObjectName("outlined")
-            button.clicked.connect(lambda checked=False, s=suffix: self.export(s))
-            bar.addWidget(button)
+        for icon, tip, suffix in (("table_view", "Export as CSV", ".csv"), ("data_object", "Export as JSON", ".json")):
+            bar.addWidget(icon_button(icon, tip, lambda s=suffix: self.export(s)))
         outer.addLayout(bar)
 
         self.count = label("", "muted")
@@ -148,8 +146,6 @@ class TeammatesPanel(QWidget):
         self.proxy.setSortRole(Qt.ItemDataRole.UserRole)
         self.table = make_table()
         self.table.setModel(self.proxy)
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
-        self.table.horizontalHeader().resizeSection(0, 180)  # room for most names; the other columns fit their contents
         self.table.sortByColumn(2, Qt.SortOrder.DescendingOrder)
         self.table.selectionModel().currentRowChanged.connect(self.on_select)
         table_layout.addWidget(self.table)
@@ -183,6 +179,7 @@ class TeammatesPanel(QWidget):
         self.p_matches.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.p_matches.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.p_matches.setMinimumHeight(140)
+        autofit(self.p_matches)
         right.addWidget(self.p_matches)
         body.addLayout(left, 1)
         body.addLayout(right, 2)
@@ -203,6 +200,7 @@ class TeammatesPanel(QWidget):
                      and (not mode or r["mode"] == mode) and (since is None or r["when"].date() >= since)]
         self.ranked = [p for p in stats.board(self.rows) if p["matches"] >= minimum]
         self.model.reset_rows(self.ranked, prefs)
+        fit_columns(self.table)
         best = stats.records(self.ranked)
         for key, _ in RECORDS:
             value, detail = self.record_labels[key]
@@ -281,6 +279,7 @@ class TeammatesPanel(QWidget):
             for column, text in enumerate((when(h["when"], prefs), h["mode"], number(h["total"], prefs),
                                            number(h["mine"], prefs))):
                 self.p_matches.setItem(row, column, QTableWidgetItem(text))
+        fit_columns(self.p_matches)
         self.profile.show()
 
     def export(self, suffix):

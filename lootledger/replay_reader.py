@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import re
+import struct
 import subprocess
 import sys
 
@@ -191,6 +192,54 @@ def is_live(result, mtime, now):
     return bool(result.get("live")) and now - mtime < LIVE_WINDOW
 
 
+def peek(path):
+    """Header facts of a local replay without decoding it, or None if it can't be read (yet).
+
+    Returns live (still recording), locked (encrypted and the key not written yet: Unreal writes the key
+    only when the replay is finalized), recorded (end of the last complete data chunk, seconds) and chunks.
+    """
+    try:
+        with open(path, "rb") as handle:
+            size = os.fstat(handle.fileno()).st_size
+            head = handle.read(4096)
+            pos = 0
+
+            def u32():
+                nonlocal pos
+                value = struct.unpack_from("<I", head, pos)[0]
+                pos += 4
+                return value
+
+            if u32() != 0x1CA2E27F:
+                return None
+            version = u32()
+            if version >= 7:  # custom versions: a count, then 20 bytes each
+                count = u32()
+                pos += count * 20
+            u32(), u32(), u32()  # length, network version, changelist
+            name = struct.unpack_from("<i", head, pos)[0]
+            pos += 4 + (name if name >= 0 else -name * 2)
+            live = u32()
+            pos += 8  # timestamp
+            u32()  # compressed
+            encrypted = u32()
+            key = u32()
+            pos += key
+            recorded, chunks = 0, 0
+            while pos + 16 <= size:
+                handle.seek(pos)
+                kind, length, start, end = struct.unpack("<IiII", handle.read(16))
+                if length <= 0 or pos + 8 + length > size:
+                    break  # a chunk still being written
+                if kind == 1:
+                    recorded = max(recorded, end)
+                chunks += 1
+                pos += 8 + length
+    except (OSError, struct.error):
+        return None
+    return {"live": bool(live), "locked": bool(encrypted) and key == 0, "recorded": recorded / 1000, "chunks": chunks}
+
+
 def scan(store, folder, *, helper=None, now=None, batch=12, progress=None, analyzer=analyze):
     """Import new or changed replays. Returns the newest in-progress replay result, if any.
 
@@ -202,12 +251,16 @@ def scan(store, folder, *, helper=None, now=None, batch=12, progress=None, analy
     now = now if now is not None else datetime.now(timezone.utc).timestamp()
     known = store.replay_files()
     older = store.files_without_players()  # read before per-player details existed: read them again
-    files = []
+    files, live = [], None
     for path in sorted(folder.glob("*.replay"), key=lambda p: p.stat().st_mtime):
         stat = path.stat()
         if path.name in older or known.get(path.name) != (stat.st_size, stat.st_mtime):
+            facts = peek(path)
+            if facts and facts["live"] and facts["locked"] and now - stat.st_mtime < LIVE_WINDOW:
+                # Still recording and encrypted without its key: nothing can be decoded until Fortnite finishes it.
+                live = {"file": str(path), "live": True, "locked": True, "events": [], "lengthSeconds": facts["recorded"]}
+                continue
             files.append((path, stat))
-    live = None
     for start in range(0, len(files), batch):
         chunk = files[start:start + batch]
         for (path, stat), result in zip(chunk, analyzer([p for p, _ in chunk], helper=helper)):

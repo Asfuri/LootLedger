@@ -10,7 +10,7 @@ import uuid
 from . import stats
 from .replay_reader import match_key, started_at, summarize
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 NAMESPACE = uuid.UUID("2f9c6a4e-8d1b-4e57-9b0a-6c3e1d7f5a21")
 EVENT_FIELDS = ("id", "match_id", "created", "video_time", "status", "chest_type", "amount",
                 "source", "confidence", "reason", "evidence")
@@ -38,6 +38,13 @@ SCHEMA_V2 = """
         status TEXT NOT NULL CHECK(status IN ('imported','skipped')),
         match_id TEXT REFERENCES matches(id), scanned TEXT NOT NULL);
 """
+# Version 3: your notes, tags and favourite flag per match. Kept apart from match_meta, which re-reads replace.
+SCHEMA_V3 = """
+    CREATE TABLE IF NOT EXISTS match_notes (
+        match_id TEXT PRIMARY KEY REFERENCES matches(id), note TEXT NOT NULL DEFAULT '',
+        tags TEXT NOT NULL DEFAULT '', favorite INTEGER NOT NULL DEFAULT 0);
+"""
+SCHEMAS = {1: SCHEMA_V1, 2: SCHEMA_V1 + SCHEMA_V2, 3: SCHEMA_V1 + SCHEMA_V2 + SCHEMA_V3}
 REPLAY_SOURCES = ("replay", "replay-broken")
 
 
@@ -70,7 +77,11 @@ class Store:
         self._migrate()
 
     def _migrate(self):
-        self.db.executescript(SCHEMA_V1 + SCHEMA_V2 + f"PRAGMA user_version={SCHEMA_VERSION};")
+        version = self.db.execute("PRAGMA user_version").fetchone()[0]
+        if 0 < version < SCHEMA_VERSION and self.db.execute("SELECT count(*) FROM matches").fetchone()[0]:
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            self.backup(self.path.parent / "backups" / f"before-schema-v{SCHEMA_VERSION}-{stamp}.sqlite")
+        self.db.executescript(SCHEMAS[SCHEMA_VERSION] + f"PRAGMA user_version={SCHEMA_VERSION};")
 
     def close(self):
         self.db.close()
@@ -209,6 +220,9 @@ class Store:
                     "seconds": m["seconds"], "total": m["total"], "broken": m["broken"],
                     "meta": json.loads(m["meta"]) if m["meta"] else None} for m in self.history()]
         snap = stats.compute(events, matches, now, session_start, self.include_broken)
+        notes = self.notes()
+        for row in snap["match_rows"]:
+            row.update(notes.get(row["id"], {"note": "", "tags": "", "favorite": False}))
         snap["entries"] = [{**row, "when": datetime.fromisoformat(row["created"]).astimezone()}
                            for row in self.entries(2**31 - 1)]
         self._snapshot, self._snapshot_key = snap, key
@@ -218,6 +232,32 @@ class Store:
 
     def replay_files(self):
         return {row["file"]: (row["size"], row["mtime"]) for row in self.db.execute("SELECT * FROM replay_files")}
+
+    def replay_file_states(self):
+        return {row["file"]: (row["size"], row["mtime"], row["status"]) for row in self.db.execute("SELECT * FROM replay_files")}
+
+    def notes(self):
+        return {row["match_id"]: {"note": row["note"], "tags": row["tags"], "favorite": bool(row["favorite"])}
+                for row in self.db.execute("SELECT * FROM match_notes")}
+
+    def set_note(self, match_id, **changes):
+        """Change a match's note, tags (comma separated) or favourite flag. Text is limited to keep exports sane."""
+        current = self.notes().get(match_id, {"note": "", "tags": "", "favorite": False})
+        for key, value in changes.items():
+            if key not in current:
+                raise ValueError(f"Unknown note field: {key}")
+            if isinstance(value, str) and len(value) > 2000:
+                raise ValueError("Notes and tags are limited to 2000 characters")
+            current[key] = value
+        tags = ", ".join(dict.fromkeys(t.strip() for t in current["tags"].split(",") if t.strip()))
+        with self.db:
+            self.db.execute("""INSERT INTO match_notes VALUES(?,?,?,?) ON CONFLICT(match_id) DO UPDATE SET
+                               note=excluded.note, tags=excluded.tags, favorite=excluded.favorite""",
+                            (match_id, current["note"].strip(), tags, int(bool(current["favorite"]))))
+
+    def match_for_file(self, file):
+        row = self.db.execute("SELECT match_id FROM replay_files WHERE file=?", (file,)).fetchone()
+        return row[0] if row else None
 
     def files_without_players(self):
         """Replay files whose match was read before per-player details existed."""
@@ -275,6 +315,7 @@ class Store:
         """Delete all matches, openings and corrections. Replay files stay recorded, so they are not read again."""
         with self.db:
             self.db.execute("DELETE FROM events")
+            self.db.execute("DELETE FROM match_notes")
             self.db.execute("DELETE FROM match_meta")
             self.db.execute("DELETE FROM audit")
             self.db.execute("UPDATE replay_files SET match_id=NULL")
@@ -306,10 +347,11 @@ class Store:
             for m in matches:
                 m["meta"] = json.loads(m["meta"]) if m["meta"] else None
             path.write_text(json.dumps({"schema": SCHEMA_VERSION, "exported": utc_now(), "matches": matches,
-                "events": self.entries(2**31 - 1), "audit": [dict(r) for r in self.db.execute("SELECT * FROM audit")]}, indent=2), encoding="utf-8")
+                "events": self.entries(2**31 - 1), "notes": self.notes(), "audit": [dict(r) for r in self.db.execute("SELECT * FROM audit")]}, indent=2), encoding="utf-8")
 
     def backup(self, path):
         path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
         if path.resolve() == self.path.resolve():
             raise ValueError("Choose a different backup file")
         temp = path.with_name(path.name + f".{uuid.uuid4().hex[:8]}.tmp")
@@ -326,10 +368,10 @@ class Store:
             if source.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
                 raise ValueError("Backup failed its integrity check")
             version = source.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (1, SCHEMA_VERSION):
+            if version not in SCHEMAS:
                 raise ValueError("Unsupported backup version")
             with closing(sqlite3.connect(":memory:")) as reference:
-                reference.executescript(SCHEMA_V1 + (SCHEMA_V2 if version >= 2 else ""))
+                reference.executescript(SCHEMAS[version])
                 if schema_of(source) != schema_of(reference):
                     raise ValueError("Backup contains an unexpected schema")
             if source.execute("PRAGMA foreign_key_check").fetchone():

@@ -1,22 +1,16 @@
 Download **LootLedger.exe** and run it. No install needed.
 
-## What's new in 0.6
+## What's new in 0.7
 
-- **Teammates page** (Ctrl+3): everyone who played with you, merged across matches. For each person: matches together, chests, chests per match, searched and broken-open chests, rare, relic and buried chests, and their best match. You are in the list too.
-- **Records:** most chests, best single match by a teammate, and who you have played with most.
-- **Filters and profiles:** filter by mode, date range and minimum matches. Select a person for their chests per match, chest types and the matches you shared. Export the table as CSV or JSON.
-- **Match details:** a squad table with each player's chests, searched and broken-open counts, share of the squad, chest types, and the MVP.
-- **Searched vs broken open:** teammates' broken-open chests now show next to yours. Ammo boxes are shown for you and your teammates. They are still not counted as chests.
-- **Teammates stay one person** when they change their display name. They are matched by their Epic account id, which is stored hashed.
-- **Fixed:** "Last 7 days" on the Matches page covered 8 days.
+- **Live match card:** Idle, Waiting for a match, Live (with the match clock and how much of the replay Fortnite has saved), Saving and Match counted. Fortnite encrypts the replay until the match ends, so the chests arrive a few seconds after the match, with a count-up and a "+N" in the colour of your rarest chest. LootLedger only reads files on disk and never touches the Fortnite process.
+- **Pop-out counter:** an always-on-top LootLedger window you can drag, resize, fade and make click-through, with its own shortcut (Ctrl+Alt+F10). Optional sound when a match is counted.
+- **New cards:** setup and replay health, sessions, daily and weekly goals, trophies, and compare any two periods.
+- **Matches:** notes, tags and favourites. **Ctrl+K** jumps anywhere; **?** lists every shortcut and shows if one is taken by another app.
+- **Share** a summary image (saved or copied, never uploaded). Chest types keep one colour everywhere, with a colourblind-safe option.
+- **Motion:** shared-axis page transitions, charts that draw in, sliding snackbars and a theme cross-fade, with Full, Reduced and Off levels.
+- **Fixes:** a crash when painting the goals card, tables and filter bars in small windows, the match detail squeezing the table, clipped and ghost text, shortcut conflicts, and the window and counter remembering where they were.
 
-Everything from 0.5 is still here, and your existing ledger opens unchanged.
-
-## Upgrading
-
-The first time LootLedger reads your replays after this update, it reads older matches again to add their teammate details. This is automatic. It only works while Fortnite still keeps those replay files (about 100). Your totals and corrections do not change.
-
-Some chests can't be credited to anyone. The replay doesn't say who opened them, because they were already open when your game first showed them. They count in your match totals, so teammate counts are a lower bound.
+Your ledger is backed up automatically to `backups\` before it is upgraded.
 
 ## First launch
 
@@ -27,4 +21,4 @@ The exe is unsigned, so Windows SmartScreen may warn the first time (More info â
 
 ## Not yet verified
 
-Teammate counts during a live match, drag-and-drop reordering, the global shortcuts, and the Teammates page at other window sizes on a real display. See [VALIDATION.md](https://github.com/femboypuppy/LootLedger/blob/main/VALIDATION.md).
+A real live match, the pop-out counter over Fortnite, mouse drag-and-drop and global shortcuts on a real display. See [VALIDATION.md](https://github.com/femboypuppy/LootLedger/blob/main/VALIDATION.md).
