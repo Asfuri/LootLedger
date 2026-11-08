@@ -9,6 +9,7 @@ mod native;
 mod pages;
 mod prefs;
 mod theme;
+mod update;
 
 use chrono::{DateTime, Datelike, Local, NaiveDate};
 use lootledger_core::{model::Replay, stats::Grain, store::Store};
@@ -26,7 +27,6 @@ use std::{
 slint::include_modules!();
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
-const RELEASES: &str = "https://github.com/femboypuppy/LootLedger/releases";
 
 struct App {
     ui: slint::Weak<AppWindow>,
@@ -189,6 +189,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     refresh(true);
     if !std::env::args().any(|a| a.starts_with("--snap=")) {
         Timer::single_shot(Duration::from_millis(400), startup_dialog);
+        if let Ok(exe) = std::env::current_exe() {
+            update::cleanup(&exe);
+        }
+        // Development builds never replace themselves.
+        if !cfg!(debug_assertions) && with_app(|a| a.prefs.auto_update).unwrap_or(false) {
+            Timer::single_shot(Duration::from_secs(5), || check_update(false));
+        }
     }
     let auto = with_app(|a| a.config.auto_watch()).unwrap_or(false);
     if auto {
@@ -206,6 +213,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ui.run()?;
     if !std::env::args().any(|a| a.starts_with("--snap=")) {
         save_geometry(&ui);
+        install_update(false);
     }
     Ok(())
 }
@@ -541,6 +549,7 @@ fn fill_settings() {
         s.set_hotkey_overlay(p.hotkey_overlay.clone().into());
         s.set_data_folder(app.folder.to_string_lossy().into_owned().into());
         s.set_version(VERSION.into());
+        s.set_auto_update(p.auto_update);
     });
 }
 
@@ -600,6 +609,7 @@ fn set_setting(name: &str, value: &str) {
         "contrast"
         | "colorblind"
         | "show_page_title"
+        | "auto_update"
         | "time_24h"
         | "live_tracking"
         | "overlay"
@@ -1548,6 +1558,7 @@ fn wire(ui: &AppWindow) {
     });
     ui.on_palette_query(|q| palette_filter(&q));
     ui.on_palette_run(run_command);
+    ui.on_info_run(|| install_update(true));
     let pg = ui.global::<Pages>();
     pg.on_changed(|table| {
         let Some(ui) = window() else { return };
@@ -1799,10 +1810,7 @@ fn settings_action(action: &str) {
                 }
             }
         }
-        "Check for updates" => {
-            // Only opens the releases page in the browser when clicked; LootLedger makes no network calls.
-            let _ = std::process::Command::new("explorer").arg(RELEASES).spawn();
-        }
+        "Check for updates" => check_update(true),
         "Clear all data" => {
             if confirm(
                 "Clear all matches and openings?",
@@ -2036,6 +2044,7 @@ fn info(title: &str, rows: Vec<Vec<(String, i32)>>, note: &str) {
             .collect(),
     ));
     ui.set_info_note(note.into());
+    ui.set_info_action("".into());
     ui.set_dialog(2);
 }
 
@@ -2579,4 +2588,56 @@ fn share_summary(copy: bool) {
             }
         }
     });
+}
+
+// ---- Updates ------------------------------------------------------------------------------------
+
+/// Ask GitHub for a newer release and download it in the background. `manual` reports every outcome.
+fn check_update(manual: bool) {
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    if manual {
+        snack("Checking for updates…");
+    }
+    std::thread::spawn(move || {
+        let result = update::check(VERSION).and_then(|found| match found {
+            Some(release) => update::download(&release, &exe).map(|_| Some(release.version)),
+            None => Ok(None),
+        });
+        let _ = slint::invoke_from_event_loop(move || match result {
+            Ok(Some(version)) => {
+                info(
+                    &format!("LootLedger {version} is ready"),
+                    vec![vec![("It installs itself when you close LootLedger. Restart now to use it right away.".to_owned(), 4)]],
+                    "Downloaded from this project's GitHub releases and checked against its published checksum.",
+                );
+                if let Some(ui) = window() {
+                    ui.set_info_action("Restart now".into());
+                }
+            }
+            Ok(None) if manual => snack(format!("You have the latest version ({VERSION})")),
+            Err(e) if manual => snack(e),
+            _ => {}
+        });
+    });
+}
+
+/// Swap in a downloaded update; with `restart`, start the new version and close this one.
+fn install_update(restart: bool) {
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    match update::apply(&exe) {
+        Ok(true) if restart => {
+            if let Some(ui) = window() {
+                save_geometry(&ui);
+            }
+            if std::process::Command::new(&exe).spawn().is_ok() {
+                let _ = slint::quit_event_loop();
+            }
+        }
+        Ok(_) => {}
+        Err(e) => snack(format!("Could not install the update: {e}")),
+    }
 }

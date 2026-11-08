@@ -21,6 +21,11 @@ Verified in this migration session:
 - **Unit checks:** settings files (invalid values, old files, round trip), number and
   duration formats, theme colours equal to 0.7.1 for two seeds and WCAG contrast for
   every preset, hotkey parsing, dashboard packing, chart paths, config legacy fields.
+- **Auto-update:** unit tests cover version ordering, refusing a download whose SHA-256
+  does not match, and swapping the exe (old copy kept until the next start). A live test
+  fetched the latest release from GitHub, downloaded LootLedger.exe and verified it against
+  GitHub's published digest. Not yet observed: a real update from one released version to
+  the next, and behaviour behind a proxy or in a folder Windows protects (e.g. Program Files).
 - **Fixed after the first hands-on test:** the rail and other controls needed two clicks,
   because the keyboard-focus layer sat above the click area (now under it, in all eight
   controls), and the What's new text ran outside its dialog (now wraps; re-rendered and checked).

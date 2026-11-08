@@ -47,6 +47,7 @@ export global Settings {
     in property <string> hotkey-overlay;
     in property <string> data-folder;
     in property <string> version;
+    in property <bool> auto-update;
     callback set(string, string);
     callback action(string);
 }
@@ -378,10 +379,15 @@ export component SettingsPage inherits VerticalLayout {
         title: "About";
         icon: Icons.info;
         Text {
-            text: "LootLedger " + Settings.version + " · counts the chests you open in Fortnite from the replays on this PC. Local only: nothing is sent anywhere.";
+            text: "LootLedger " + Settings.version + " · counts the chests you open in Fortnite from the replays on this PC. Your data never leaves this PC.";
             font-size: Tokens.body;
             color: Tokens.on-surface;
             wrap: word-wrap;
+        }
+        Row {
+            name: "Update automatically";
+            hint: "Asks GitHub for a newer LootLedger and installs it when you close the app. Only the version check and the download go over the internet; none of your data is sent.";
+            Switch { checked: Settings.auto-update; label: "Update automatically"; toggled(on) => { Settings.set("auto_update", on ? "true" : "false"); } }
         }
         HorizontalLayout {
             alignment: start;

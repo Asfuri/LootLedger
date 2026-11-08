@@ -151,6 +151,7 @@ prefs! {
     colorblind: bool = false,
     seen_version: String = String::new(),
     show_page_title: bool = false,
+    auto_update: bool = true,
 }
 
 /// Allowed values of the choice fields.

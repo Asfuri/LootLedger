@@ -52,7 +52,7 @@ The ledger is `%LOCALAPPDATA%\LootLedger\ledger.sqlite` (SQLite, saved immediate
 - **Matches** also take notes, tags and a favourite star, and the search covers them.
 - **Settings:** theme (light, dark or system), accent colour (presets or your own `#rrggbb`), higher contrast, corner shape, density, text size, chart style, background, animations, overview tiles, date, time and number formats, replay folder, auto-watch, counting broken-open chests and shortcuts. Data tools: export, backups, settings export and import, and **Clear all data**, which saves a backup first.
 
-Every setting applies immediately and is saved to `%LOCALAPPDATA%\LootLedger\ui-settings.json`. **Ctrl+1** to **Ctrl+6** switch pages, **Ctrl+K** opens the command palette (pages, matches, teammates, settings), and **?** lists every shortcut. The share button on Overview saves or copies a summary image; nothing is uploaded. **Check for updates** in Settings only opens the releases page in your browser. LootLedger makes no network calls.
+Every setting applies immediately and is saved to `%LOCALAPPDATA%\LootLedger\ui-settings.json`. **Ctrl+1** to **Ctrl+6** switch pages, **Ctrl+K** opens the command palette (pages, matches, teammates, settings), and **?** lists every shortcut. The share button on Overview saves or copies a summary image; nothing is uploaded. **Updates:** LootLedger asks this project's GitHub releases for a newer version, downloads it, checks it against GitHub's published SHA-256 and installs it when you close the app (or right away with Restart now). That version check and download are its only network traffic; none of your data is sent. Turn it off in Settings → About, or use **Check for updates** there.
 
 ## Build from source
 

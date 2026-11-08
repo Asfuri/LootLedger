@@ -163,6 +163,8 @@ export component AppWindow inherits Window {
     in property <string> info-title;
     in property <[TableRow]> info-rows;
     in property <string> info-note;
+    in property <string> info-action;
+    callback info-run;
     in property <[string]> palette-items;
     in-out property <int> palette-index;
     callback palette-query(string);
@@ -460,7 +462,10 @@ export component AppWindow inherits Window {
                 if dialog == 2 && root.info-note != "": Text { text: root.info-note; font-size: Tokens.body; color: Tokens.on-surface-variant; wrap: word-wrap; }
                 if dialog == 2: HorizontalLayout {
                     alignment: end;
-                    Button { text: "OK"; kind: "filled"; clicked => { root.dialog = 0; } }
+                    spacing: Tokens.s;
+                    if root.info-action != "": Button { text: "Later"; kind: "text"; clicked => { root.dialog = 0; } }
+                    if root.info-action != "": Button { text: root.info-action; kind: "filled"; clicked => { root.dialog = 0; root.info-run(); } }
+                    if root.info-action == "": Button { text: "OK"; kind: "filled"; clicked => { root.dialog = 0; } }
                 }
             }
         }
