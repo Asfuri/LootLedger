@@ -141,6 +141,7 @@ prefs! {
     overlay_geometry: Vec<i64> = Vec::new(),
     hotkey_overlay: String = "Ctrl+Alt+F10".into(),
     sound: bool = false,
+    match_popup: bool = true,
     volume: i64 = 50,
     window_geometry: Vec<i64> = Vec::new(),
     window_maximized: bool = false,

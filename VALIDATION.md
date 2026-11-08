@@ -21,11 +21,20 @@ What has been checked, and what has not. Earlier history (the Python app and the
 - **Updates:** a live test fetched the latest release from GitHub, downloaded it and verified it against the published SHA-256.
 - **Live files:** while Fortnite records, the replay header has a 32-byte all-zero key placeholder, and the key appears when the match ends. LootLedger treats such a file as locked and never tries to decode it.
 - **Runtime:** the release exe imports only Windows system DLLs (no dynamic CRT, Python, Qt, .NET or WebView).
+- **Taskbar icon (0.8.2):** an off-screen window reported both a large and a small icon through WM_GETICON.
+- **Match pop-up (0.8.3):**
+  - It was rendered off-screen from demo data, with a unit test of its comparison line (above or below average, on average, best match, first match).
+  - Without screenshot mode, the pop-up is created inactive and off-screen, then moved into its corner with a no-activate style.
+- **Size build (0.8.3):** `opt-level = "s"`, with the software renderer, path rasteriser, core decoder, Oodle and AES at `opt-level = 3`. This took the exe from 16.4 to 12.9 MB, and every page still renders. The rest is mostly Slint itself:
+  - its ICU word-break data, including about 3 MB of Chinese and Japanese dictionaries;
+  - its image and SVG decoders, which Slint's winit backend always switches on.
+
+  Going below 10 MB would need a patched Slint or exe compression, which antivirus tools often flag.
 
 ## Not yet verified
 
-- A live match from start to finish, the pop-out counter over Fortnite, the chime, and global shortcuts.
+- A live match from start to finish, the match pop-up and the pop-out counter over Fortnite (on screen, and that the game keeps focus), the chime, and global shortcuts.
 - Dragging dashboard cards, tooltips and the clipboard copy with a real mouse.
 - Aero Snap, the snap layout popup, an auto-hiding taskbar, display scaling above 100%, mixed-DPI monitors and screen readers.
 - A real update from one release to the next (0.8.1 was the first release with the updater; 0.8.2 is the first update it can install), and updating behind a proxy or from a protected folder such as Program Files.
-- Performance of the full app: cold start, memory, idle CPU and frame rate. The exe is 16.5 MB, above the 10 MB goal.
+- Performance of the full app after the size build: cold start, memory, idle CPU and frame rate. These need Fortnite closed, because measuring opens a window.

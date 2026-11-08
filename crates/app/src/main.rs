@@ -72,6 +72,7 @@ struct CountUp {
 thread_local! {
     static OFFSCREEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static OVERLAY: RefCell<Option<Overlay>> = const { RefCell::new(None) };
+    static POPUP: RefCell<Option<(MatchPopup, u64)>> = const { RefCell::new(None) };
     static APP: RefCell<Option<Rc<RefCell<App>>>> = const { RefCell::new(None) };
 }
 
@@ -545,6 +546,7 @@ fn fill_settings() {
         s.set_overlay_click_through(p.overlay_click_through);
         s.set_overlay_teammates(p.overlay_teammates);
         s.set_sound(p.sound);
+        s.set_match_popup(p.match_popup);
         s.set_volume(p.volume as i32);
         s.set_goal_daily(p.goal_daily as i32);
         s.set_goal_weekly(p.goal_weekly as i32);
@@ -621,6 +623,7 @@ fn set_setting(name: &str, value: &str) {
         | "overlay_click_through"
         | "overlay_teammates"
         | "sound"
+        | "match_popup"
         | "celebrate" => Some((name, json!(on))),
         "overlay_opacity" | "volume" | "goal_daily" | "goal_weekly" => {
             Some((name, json!(value.parse::<i64>().unwrap_or(0))))
@@ -785,10 +788,95 @@ fn scan_finished(result: live::ScanResult) {
         app.tracker.state == live::State::Saving && result.error.is_none()
     })
     .unwrap_or(false);
-    if again && !match_counted() {
+    let counted = again && match_counted();
+    if again && !counted {
         Timer::single_shot(Duration::from_secs(1), scan); // that check started before the replay was finished
     }
     refresh(false);
+    if counted {
+        show_match_popup();
+    }
+}
+
+/// The corner card after a match is counted. It never takes focus, and closes after 8 s or on a click.
+fn show_match_popup() {
+    let Some(ui) = window() else { return };
+    let Some((heading, count, detail, corner)) = with_app(|app| {
+        let p = &app.prefs;
+        let snap = app.snap.as_ref()?;
+        let id = app.ended_id.as_ref()?;
+        let row = snap.match_rows.iter().find(|r| &r.id == id)?;
+        if !p.match_popup {
+            return None;
+        }
+        let place = row
+            .placement
+            .map(|n| format!(" · #{n}"))
+            .unwrap_or_default();
+        // Stay clear of the pop-out counter.
+        let corner = if p.overlay && p.overlay_corner == "bottom-right" {
+            "top-right"
+        } else {
+            "bottom-right"
+        };
+        Some((
+            format!("Match counted · {}{place}", row.mode),
+            p.int(row.count),
+            cards::popup_detail(row.count, snap, p),
+            corner,
+        ))
+    })
+    .flatten() else {
+        return;
+    };
+    // Created off-screen and inactive (see the window hook in main), then moved into its corner.
+    let offscreen = OFFSCREEN.with(|o| o.replace(true));
+    let popup = MatchPopup::new().ok();
+    if let Some(w) = &popup {
+        let tokens = ui.global::<Tokens>();
+        w.set_heading(heading.into());
+        w.set_count(count.into());
+        w.set_detail(detail.into());
+        w.set_surface(tokens.get_container_high());
+        w.set_outline(tokens.get_outline_variant());
+        w.set_ink(tokens.get_on_surface());
+        w.set_muted(tokens.get_on_surface_variant());
+        w.set_accent(tokens.get_primary());
+        w.set_radius(tokens.get_r_lg());
+        w.set_pad(tokens.get_m());
+        let _ = w.show();
+    }
+    OFFSCREEN.with(|o| o.set(offscreen));
+    let Some(popup) = popup else { return };
+    #[cfg(windows)]
+    native::style_overlay(popup.window(), 100, false);
+    if !offscreen {
+        place_in_corner(popup.window(), corner, true); // screenshot runs keep it off-screen
+    }
+    let weak = popup.as_weak();
+    popup.on_dismiss(move || {
+        if let Some(w) = weak.upgrade() {
+            let _ = w.hide();
+        }
+    });
+    let id = POPUP.with(|slot| {
+        let mut slot = slot.borrow_mut();
+        let id = slot.as_ref().map_or(0, |(_, id)| id + 1);
+        if let Some((old, _)) = slot.replace((popup, id)) {
+            let _ = old.hide();
+        }
+        id
+    });
+    Timer::single_shot(Duration::from_secs(8), move || {
+        POPUP.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            if slot.as_ref().is_some_and(|(_, current)| *current == id)
+                && let Some((w, _)) = slot.take()
+            {
+                let _ = w.hide();
+            }
+        });
+    });
 }
 
 /// Hand-over: the finished replay went through the normal import, so the live view shows that match.
@@ -1866,8 +1954,8 @@ const PAGE_NAMES: [&str; 6] = [
     "Settings",
 ];
 const WHATS_NEW: [&str; 3] = [
-    "LootLedger now shows its icon on the taskbar and in Alt+Tab.",
-    "Updates install themselves when you close LootLedger. Turn this off in Settings → About.",
+    "Pop-up after each match: your chests, placement and how the match compares, in the corner for a few seconds. It never takes focus from the game. Turn it off in Settings → Live match and counter.",
+    "A smaller app: 12.9 MB instead of 16.5 MB, so downloads and updates are faster.",
     "Your data still never leaves this PC; only the version check and the download go over the internet.",
 ];
 
@@ -1905,6 +1993,7 @@ fn commands(app: &App) -> Vec<(String, Command)> {
         ("live_tracking", "Track the current match", p.live_tracking),
         ("colorblind", "Colourblind-safe chest colours", p.colorblind),
         ("sound", "Sound when a match is counted", p.sound),
+        ("match_popup", "Pop-up after each match", p.match_popup),
     ] {
         items.push((
             format!("{title}: turn {}", if on { "off" } else { "on" }),
@@ -2350,27 +2439,39 @@ fn apply_overlay() {
                     .set_position(slint::PhysicalPosition::new(x as i32, y as i32));
             }
         } else {
-            use slint::winit_030::WinitWindowAccessor;
-            let area = w
-                .window()
-                .with_winit_window(|win| win.current_monitor().map(|m| (m.position(), m.size())))
-                .flatten();
-            if let Some((pos, screen)) = area {
-                let margin = (24.0 * scale) as i32;
-                let x = if corner.ends_with("left") {
-                    pos.x + margin
-                } else {
-                    pos.x + screen.width as i32 - ww - margin
-                };
-                let y = if corner.starts_with("top") {
-                    pos.y + margin
-                } else {
-                    pos.y + screen.height as i32 - wh - margin * 3
-                };
-                w.window().set_position(slint::PhysicalPosition::new(x, y));
-            }
+            place_in_corner(w.window(), &corner, false);
         }
     });
+}
+
+/// Moves a window into a corner of its monitor (or the primary one), clear of a bottom taskbar.
+fn place_in_corner(window: &slint::Window, corner: &str, primary: bool) {
+    use slint::winit_030::WinitWindowAccessor;
+    let (ww, wh) = (window.size().width as i32, window.size().height as i32);
+    let area = window
+        .with_winit_window(|win| {
+            if primary {
+                win.primary_monitor()
+            } else {
+                win.current_monitor()
+            }
+            .map(|m| (m.position(), m.size()))
+        })
+        .flatten();
+    if let Some((pos, screen)) = area {
+        let margin = (24.0 * window.scale_factor()) as i32;
+        let x = if corner.ends_with("left") {
+            pos.x + margin
+        } else {
+            pos.x + screen.width as i32 - ww - margin
+        };
+        let y = if corner.starts_with("top") {
+            pos.y + margin
+        } else {
+            pos.y + screen.height as i32 - wh - margin * 3
+        };
+        window.set_position(slint::PhysicalPosition::new(x, y));
+    }
 }
 
 fn save_overlay_position() {

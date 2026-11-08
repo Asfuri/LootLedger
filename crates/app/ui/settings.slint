@@ -38,6 +38,7 @@ export global Settings {
     in property <bool> overlay-click-through;
     in property <bool> overlay-teammates;
     in property <bool> sound;
+    in property <bool> match-popup;
     in property <int> volume;
     in property <int> goal-daily;
     in property <int> goal-weekly;
@@ -281,6 +282,11 @@ export component SettingsPage inherits VerticalLayout {
         Row {
             name: "Teammates in the counter";
             Switch { checked: Settings.overlay-teammates; label: "Teammates in the counter"; toggled(on) => { Settings.set("overlay_teammates", on ? "true" : "false"); } }
+        }
+        Row {
+            name: "Pop-up after each match";
+            hint: "Your chests, placement and how it compares, in the corner for a few seconds. It never takes focus from the game.";
+            Switch { checked: Settings.match-popup; label: "Pop-up after each match"; toggled(on) => { Settings.set("match_popup", on ? "true" : "false"); } }
         }
         Row {
             name: "Sound when a match is counted";

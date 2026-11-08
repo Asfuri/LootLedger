@@ -1326,9 +1326,49 @@ pub fn pack(cards: Vec<CardData>, columns: i32) -> Vec<crate::DashRow> {
         .collect()
 }
 
+/// The match pop-up's second line: how this match compares, then today's total.
+pub fn popup_detail(count: i64, snap: &Snapshot, p: &Prefs) -> String {
+    versus(count, snap.matches, snap.best, snap.avg, snap.today, p)
+}
+
+fn versus(
+    count: i64,
+    matches: i64,
+    best: Option<i64>,
+    avg: Option<f64>,
+    today: i64,
+    p: &Prefs,
+) -> String {
+    let mut parts = Vec::new();
+    if matches > 1 && best == Some(count) {
+        parts.push("Your best match yet".to_owned());
+    } else if let Some(avg) = avg {
+        let diff = (count as f64 - avg).round() as i64;
+        parts.push(match diff {
+            0 => "Right on your average".to_owned(),
+            d if d > 0 => format!("+{} vs your average", p.int(d)),
+            d => format!("−{} vs your average", p.int(-d)),
+        });
+    }
+    parts.push(format!("Today {}", p.int(today)));
+    parts.join(" · ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn popup_compares_with_the_average_or_calls_a_best() {
+        let p = Prefs::default();
+        let line = |count| versus(count, 10, Some(40), Some(20.4), 1234, &p);
+        assert_eq!(line(23), "+3 vs your average · Today 1,234");
+        assert_eq!(line(17), "−3 vs your average · Today 1,234");
+        assert_eq!(line(20), "Right on your average · Today 1,234");
+        assert_eq!(line(40), "Your best match yet · Today 1,234");
+        // The first match is not a "best" yet, and with no average only today is shown.
+        assert_eq!(versus(5, 1, Some(5), None, 5, &p), "Today 5");
+    }
 
     #[test]
     fn packing_wraps_wide_cards_like_the_old_grid() {

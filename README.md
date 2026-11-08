@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/femboypuppy/LootLedger/releases/latest"><b>⬇ Download LootLedger.exe</b></a>
-  &nbsp;·&nbsp; Windows 10/11 &nbsp;·&nbsp; one 16 MB file &nbsp;·&nbsp; free and open source
+  &nbsp;·&nbsp; Windows 10/11 &nbsp;·&nbsp; one 13 MB file &nbsp;·&nbsp; free and open source
 </p>
 
 <p align="center">
@@ -69,6 +69,7 @@ Save or copy a summary card or a weekly recap image, ready to post.
 
 ### Also included
 
+- **Pop-up after each match:** your chests, placement and how the match compares, in the corner for a few seconds, without taking focus from the game.
 - **Live match card** and a pop-out, always-on-top **counter** for a second screen.
 - **Corrections:** remove, restore or fix any entry, add a manual +1, and undo. Every change is kept in an audit trail, and re-reading replays never overwrites your edits.
 - **Export** to JSON or CSV, **backups** and **restore**. **Clear all data** saves a backup first.

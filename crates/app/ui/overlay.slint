@@ -38,3 +38,47 @@ export component Overlay inherits Window {
         }
     }
 }
+
+// Shown for a few seconds after a match is counted. Never takes focus; a click closes it.
+export component MatchPopup inherits Window {
+    title: "LootLedger";
+    default-font-family: "Segoe UI";
+    no-frame: true;
+    always-on-top: true;
+    in property <string> heading;
+    in property <string> count;
+    in property <string> detail;
+    in property <color> surface;
+    in property <color> outline;
+    in property <color> ink;
+    in property <color> muted;
+    in property <color> accent;
+    in property <length> radius;
+    in property <length> pad;
+    callback dismiss();
+    width: 300px;
+    height: content.preferred-height;
+    background: transparent;
+    Rectangle {
+        border-radius: radius;
+        border-width: 1px;
+        border-color: outline;
+        background: surface;
+        content := VerticalLayout {
+            padding: pad;
+            spacing: pad / 4;
+            Text { text: heading; font-size: 13px; color: muted; overflow: elide; }
+            HorizontalLayout {
+                alignment: start;
+                spacing: pad / 2;
+                Text { text: count; font-size: 40px; font-weight: 700; color: accent; }
+                Text { text: count == "1" ? "chest" : "chests"; font-size: 16px; color: ink; vertical-alignment: bottom; }
+            }
+            if detail != "": Text { text: detail; font-size: 12px; color: ink; wrap: word-wrap; }
+        }
+        TouchArea {
+            mouse-cursor: pointer;
+            clicked => { dismiss(); }
+        }
+    }
+}
