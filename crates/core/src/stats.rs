@@ -99,6 +99,8 @@ pub struct MatchRow {
     pub mvp: Option<String>,
     pub squad_total: i64,
     pub unattributed: i64,
+    /// The recorder's match stats (damage, accuracy, materials...), when the replay had them.
+    pub stats: Option<Value>,
     pub note: String,
     pub tags: String,
     pub favorite: bool,
@@ -673,6 +675,10 @@ pub fn compute(
             squad_total: squad_rows.iter().flatten().map(|p| p.total).sum(),
             squad: squad_rows,
             unattributed: meta["unattributed"].as_i64().unwrap_or(0),
+            stats: meta
+                .get("stats")
+                .filter(|s| s.as_object().is_some_and(|o| !o.is_empty()))
+                .cloned(),
             note: m.note.clone(),
             tags: m.tags.clone(),
             favorite: m.favorite,

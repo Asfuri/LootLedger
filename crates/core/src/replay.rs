@@ -195,6 +195,8 @@ struct Builder {
     placement: Option<u32>,
     total_players: Option<u32>,
     eliminations: Option<u32>,
+    /// The recorder's AthenaMatchStats (the old reader kept only eliminations).
+    stats: Option<serde_json::Value>,
 }
 
 struct Episode {
@@ -479,13 +481,30 @@ impl Decoder {
         match metadata.as_str() {
             "AthenaMatchStats" => {
                 e.u32()?;
-                e.f32()?;
-                e.u32()?;
-                let eliminations = e.u32()?;
-                for _ in 0..8 {
-                    e.u32()?;
+                let accuracy = e.f32()?;
+                let mut values = [0u32; 10];
+                for v in &mut values {
+                    *v = e.u32()?;
                 }
+                let [
+                    assists,
+                    eliminations,
+                    weapon,
+                    other,
+                    revives,
+                    taken,
+                    structures,
+                    gathered,
+                    used,
+                    travelled,
+                ] = values;
                 self.builder.eliminations = Some(eliminations);
+                self.builder.stats = Some(serde_json::json!({
+                    "accuracy": accuracy, "assists": assists, "eliminations": eliminations,
+                    "damage_to_players": weapon, "other_damage": other, "revives": revives, "damage_taken": taken,
+                    "damage_to_structures": structures, "materials_gathered": gathered, "materials_used": used,
+                    "distance": travelled,
+                }));
             }
             "AthenaMatchTeamStats" => {
                 e.u32()?;
@@ -1629,6 +1648,10 @@ impl Decoder {
             } else {
                 None
             },
+            // Always present from this decoder (empty without a stats event), so a match is re-read only once.
+            stats: Some(
+                if ok { b.stats.clone() } else { None }.unwrap_or_else(|| serde_json::json!({})),
+            ),
             owner,
             teammates,
             events,

@@ -50,7 +50,8 @@ def decoded(result):
     are put in (time, actor, episode) order. Error texts are .NET exception messages: only whether a
     file failed is compared.
     """
-    result = {k: v for k, v in result.items() if k not in ("schema", "file", "trace")}
+    # "stats" is new in the Rust decoder (the old reader kept only eliminations from the same event).
+    result = {k: v for k, v in result.items() if k not in ("schema", "file", "trace", "stats")}
     result["events"] = sorted(result.get("events") or [], key=lambda e: (e["t"], e["actor"], e["episode"]))
     result["error"] = bool(result.get("error"))
     return result

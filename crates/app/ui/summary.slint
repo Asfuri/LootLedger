@@ -12,6 +12,7 @@ export component Summary inherits Window {
     in property <length> radius;
     in property <string> heading;
     in property <string> total;
+    in property <string> caption: "chests opened, all time";
     in property <[string]> names;
     in property <[string]> values;
     in property <string> footer;
@@ -25,7 +26,7 @@ export component Summary inherits Window {
         background: card;
         Text { x: 50px; y: 30px; text: heading; font-size: 30px; font-weight: 600; color: ink; }
         Text { x: 50px; y: 100px; text: total; font-size: 120px; font-weight: 600; color: ink; }
-        Text { x: 50px; y: 250px; text: "chests opened, all time"; font-size: 28px; color: ink; }
+        Text { x: 50px; y: 250px; text: caption; font-size: 28px; color: ink; }
         for name[i] in names: Text { x: 50px + i * 265px; y: 360px; width: 250px; text: name; font-size: 22px; color: ink; }
         for value[i] in values: Text {
             x: 50px + i * 265px;

@@ -28,6 +28,7 @@ export global Pages {
     // Match detail
     in property <string> detail-title;
     in property <string> detail-sub;
+    in property <string> detail-stats;
     in property <bool> detail-favorite;
     in property <string> detail-tags;
     in property <string> detail-note;
@@ -249,6 +250,7 @@ export component MatchesPage inherits VerticalLayout {
                     horizontal-stretch: 1;
                     Text { text: Pages.detail-title; font-size: Tokens.title; font-weight: 600; color: Tokens.on-surface; }
                     Text { text: Pages.detail-sub; font-size: Tokens.body; color: Tokens.on-surface-variant; wrap: word-wrap; }
+                    if Pages.detail-stats != "": Text { text: Pages.detail-stats; font-size: Tokens.body; color: Tokens.on-surface; wrap: word-wrap; }
                 }
                 IconButton {
                     icon: Icons.star;

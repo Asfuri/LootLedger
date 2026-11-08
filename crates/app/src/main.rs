@@ -251,6 +251,11 @@ fn snapshots(ui: &AppWindow, dir: PathBuf) -> Timer {
                 step.set(n + 1);
                 return;
             }
+            if n == shots.len() + 1 && std::env::args().any(|a| a.starts_with("--recap-out=")) {
+                share_image(true, false);
+                step.set(n + 1);
+                return;
+            }
             let _ = slint::quit_event_loop();
             return;
         }
@@ -1548,6 +1553,8 @@ fn wire(ui: &AppWindow) {
         "overlay" => toggle_overlay(),
         "Copy summary image" => share_summary(true),
         "Save summary image…" => share_summary(false),
+        "Copy weekly recap" => share_image(true, true),
+        "Save weekly recap…" => share_image(true, false),
         _ => {}
     });
     ui.global::<Settings>()
@@ -1855,13 +1862,12 @@ const PAGE_NAMES: [&str; 6] = [
     "Teammates",
     "Settings",
 ];
-const WHATS_NEW: [&str; 6] = [
-    "LootLedger is now a native Rust app: a fraction of the size and memory, and it starts in a blink.",
-    "The same ledger, settings and dashboard: your matches, corrections, notes and layout carry over unchanged.",
-    "A new title bar without the app name, Windows snap layouts on the maximize button, and a cleaner rail.",
-    "Replays are read by a new built-in reader that matched the old one on every opening of 100 real replays.",
-    "Everything from 0.7.1: live match card, goals, trophies, sessions, compare, teammates and their profiles.",
-    "Still local only: nothing is uploaded and LootLedger never touches the Fortnite process.",
+const WHATS_NEW: [&str; 5] = [
+    "Match stats: damage, accuracy, eliminations, assists, revives, materials and distance for each match, from your replays. See them in a match's details and in the new Match stats card (Statistics, or add it to Overview).",
+    "Weekly recap: a shareable image of your week (chests, matches, best match, change from last week, top teammate). Share it from Overview or Ctrl+K.",
+    "Automatic updates: LootLedger downloads new versions from its GitHub releases, checks them, and installs them when you close it. Turn it off in Settings → About.",
+    "Fixed: tabs and buttons needed two clicks, and this window's text could run outside the box.",
+    "Your data still never leaves this PC; only the version check and the download go over the internet.",
 ];
 
 #[derive(Clone)]
@@ -1872,6 +1878,7 @@ enum Command {
     Scan,
     Shortcuts,
     Image(bool),
+    Recap(bool),
     Match(String),
     Teammate(String),
 }
@@ -1907,6 +1914,8 @@ fn commands(app: &App) -> Vec<(String, Command)> {
     items.push(("Keyboard shortcuts".into(), Command::Shortcuts));
     items.push(("Copy summary image".into(), Command::Image(true)));
     items.push(("Save summary image…".into(), Command::Image(false)));
+    items.push(("Copy weekly recap".into(), Command::Recap(true)));
+    items.push(("Save weekly recap…".into(), Command::Recap(false)));
     if let Some(snap) = &app.snap {
         for row in snap.match_rows.iter().take(200) {
             let tags = if row.tags.is_empty() {
@@ -2010,6 +2019,7 @@ fn run_command(index: i32) {
         Some(Command::Scan) => scan(),
         Some(Command::Shortcuts) => show_shortcuts(),
         Some(Command::Image(copy)) => share_summary(copy),
+        Some(Command::Recap(copy)) => share_image(true, copy),
         Some(Command::Match(id)) => {
             go_to(&ui, 1);
             ui.global::<Pages>()
@@ -2499,25 +2509,73 @@ fn on_hotkey(id: i32) {
 // ---- Summary image -------------------------------------------------------------------------------
 
 fn share_summary(copy: bool) {
+    share_image(false, copy);
+}
+
+/// The 1200×630 share card: all-time totals, or this week's recap (`week`). Drawn locally.
+fn share_image(week: bool, copy: bool) {
     let Some(ui) = window() else { return };
-    let Some((heading, total, values, footer)) = with_app(|app| {
+    let Some((heading, total, caption, names, values, footer)) = with_app(|app| {
         let (snap, p) = (app.snap.as_ref()?, &app.prefs);
-        let mate = snap.board.iter().find(|m| !m.me && !m.unranked);
+        let player = snap.player.clone().unwrap_or_else(|| "My chests".into());
+        if !week {
+            let mate = snap.board.iter().find(|m| !m.me && !m.unranked);
+            return Some((
+                format!("LootLedger · {player}"),
+                p.int(snap.all),
+                "chests opened, all time".to_owned(),
+                ["Today", "Best match", "Matches", "Top teammate"]
+                    .map(String::from)
+                    .to_vec(),
+                vec![
+                    p.int(snap.today),
+                    p.int(snap.best.unwrap_or(0)),
+                    p.int(snap.matches),
+                    mate.map_or("–".into(), |m| format!("{} · {}", m.name, p.int(m.total))),
+                ],
+                format!(
+                    "{} · counted from my Fortnite replays",
+                    Local::now().format("%d %b %Y")
+                ),
+            ));
+        }
+        let today = snap.today_date;
+        let monday = today - chrono::Duration::days(today.weekday().num_days_from_monday() as i64);
+        let rows: Vec<_> = snap
+            .match_rows
+            .iter()
+            .filter(|r| r.mode != "Manual" && r.when.date_naive() >= monday)
+            .cloned()
+            .collect();
+        let best = rows.iter().map(|r| r.count).max();
+        let mate = lootledger_core::stats::board(&rows)
+            .into_iter()
+            .find(|m| !m.me && !m.unranked);
+        let change = snap.week - snap.week_prev;
+        let sign = if change > 0 {
+            "+"
+        } else if change < 0 {
+            "−"
+        } else {
+            "±"
+        };
         Some((
-            format!(
-                "LootLedger · {}",
-                snap.player.clone().unwrap_or_else(|| "My chests".into())
-            ),
-            p.int(snap.all),
+            format!("LootLedger · week of {} · {player}", p.short_date(monday)),
+            p.int(snap.week),
+            "chests opened this week".to_owned(),
+            ["Matches", "Best match", "vs last week", "Top teammate"]
+                .map(String::from)
+                .to_vec(),
             vec![
-                p.int(snap.today),
-                p.int(snap.best.unwrap_or(0)),
-                p.int(snap.matches),
+                p.int(rows.len() as i64),
+                best.map_or("–".into(), |b| p.int(b)),
+                format!("{sign}{}", p.int(change.abs())),
                 mate.map_or("–".into(), |m| format!("{} · {}", m.name, p.int(m.total))),
             ],
             format!(
-                "{} · counted from my Fortnite replays",
-                Local::now().format("%d %b %Y")
+                "{} – {} · counted from my Fortnite replays",
+                monday.format("%d %b"),
+                today.format("%d %b %Y")
             ),
         ))
     })
@@ -2536,10 +2594,9 @@ fn share_summary(copy: bool) {
     card.set_radius(tokens.get_r_xl());
     card.set_heading(heading.into());
     card.set_total(total.into());
+    card.set_caption(caption.into());
     card.set_names(cards::model(
-        ["Today", "Best match", "Matches", "Top teammate"]
-            .map(SharedString::from)
-            .to_vec(),
+        names.into_iter().map(SharedString::from).collect(),
     ));
     card.set_values(cards::model(
         values.into_iter().map(SharedString::from).collect(),
@@ -2563,15 +2620,29 @@ fn share_summary(copy: bool) {
         if copy {
             #[cfg(windows)]
             if report(native::copy_image(w, h, &rgba)).is_some() {
-                snack("Summary image copied");
+                snack(if week {
+                    "Weekly recap copied"
+                } else {
+                    "Summary image copied"
+                });
             }
             return;
         }
-        let fixed =
-            std::env::args().find_map(|a| a.strip_prefix("--summary-out=").map(PathBuf::from));
+        let fixed = {
+            let flag = if week {
+                "--recap-out="
+            } else {
+                "--summary-out="
+            };
+            std::env::args().find_map(|a| a.strip_prefix(flag).map(PathBuf::from))
+        };
         if let Some(path) = fixed.or_else(|| {
             rfd::FileDialog::new()
-                .set_file_name("lootledger-summary.png")
+                .set_file_name(if week {
+                    "lootledger-week.png"
+                } else {
+                    "lootledger-summary.png"
+                })
                 .add_filter("PNG image", &["png"])
                 .save_file()
         }) {
@@ -2584,7 +2655,11 @@ fn share_summary(copy: bool) {
                 Ok(())
             })();
             if report(result).is_some() {
-                snack("Summary image saved");
+                snack(if week {
+                    "Weekly recap saved"
+                } else {
+                    "Summary image saved"
+                });
             }
         }
     });

@@ -21,6 +21,11 @@ Verified in this migration session:
 - **Unit checks:** settings files (invalid values, old files, round trip), number and
   duration formats, theme colours equal to 0.7.1 for two seeds and WCAG contrast for
   every preset, hotkey parsing, dashboard packing, chart paths, config legacy fields.
+- **Match stats and weekly recap (0.8.1):** the decoder now keeps every field of the replay's
+  AthenaMatchStats event. Decoder parity with the old reader still holds on all 100 replays
+  (the new field is compared separately, since the old reader dropped it). A sandbox copy of the
+  real ledger re-imported 97 replays without changing any total (3,181 chests) and gained stats
+  for 96 matches. Screenshots checked the Match stats card and the weekly recap image.
 - **Auto-update:** unit tests cover version ordering, refusing a download whose SHA-256
   does not match, and swapping the exe (old copy kept until the next start). A live test
   fetched the latest release from GitHub, downloaded LootLedger.exe and verified it against

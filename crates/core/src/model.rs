@@ -47,6 +47,9 @@ pub struct Replay {
     pub placement: Option<i64>,
     pub total_players: Option<i64>,
     pub eliminations: Option<i64>,
+    /// Damage, accuracy, materials and more (Rust decoder only; absent in 0.7.1 results).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stats: Option<Value>,
     pub owner: Option<Player>,
     #[serde(default)]
     pub teammates: Vec<Player>,
@@ -303,7 +306,7 @@ impl Replay {
                 .then_with(|| total(b).cmp(&total(a)))
                 .then_with(|| a["name"].as_str().cmp(&b["name"].as_str()))
         });
-        let meta = json!({
+        let mut meta = json!({
             "file": file_name(&self.file), "playlist": self.playlist, "mode": mode_name(self.playlist.as_deref()),
             "placement": self.placement, "total_players": self.total_players, "eliminations": self.eliminations,
             "length": self.length_seconds, "owner": owner.name, "owner_id": owner.epic_id,
@@ -311,6 +314,9 @@ impl Replay {
             "containers": containers, "team": team, "team_players": teammates, "complete": self.ok,
             "error": self.error, "branch": self.branch, "players": ordered, "unattributed": unattributed,
         });
+        if let Some(stats) = &self.stats {
+            meta["stats"] = stats.clone();
+        }
         (mine, meta)
     }
 }

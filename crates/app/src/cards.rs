@@ -70,6 +70,7 @@ pub const TITLES: &[(&str, &str, &str)] = &[
     ("goals", "Goals", "flag"),
     ("trophies", "Trophies", "trophy"),
     ("compare", "Compare periods", "compare_arrows"),
+    ("stats", "Match stats", "bar_chart"),
 ];
 pub const STATS_ORDER: &[&str] = &[
     "health",
@@ -78,6 +79,7 @@ pub const STATS_ORDER: &[&str] = &[
     "modes",
     "heat",
     "records",
+    "stats",
     "sessions",
     "goals",
     "teammates",
@@ -1191,6 +1193,91 @@ fn compare_card(span: i32, ctx: &Context) -> CardData {
     card
 }
 
+/// Match stats as the replay stores them, in display order: (label, key, how to show it).
+pub const MATCH_STATS: &[(&str, &str, StatUnit)] = &[
+    ("Damage to players", "damage_to_players", StatUnit::Count),
+    ("Damage taken", "damage_taken", StatUnit::Count),
+    ("Eliminations", "eliminations", StatUnit::Count),
+    ("Assists", "assists", StatUnit::Count),
+    ("Accuracy", "accuracy", StatUnit::Percent),
+    ("Revives", "revives", StatUnit::Count),
+    (
+        "Damage to structures",
+        "damage_to_structures",
+        StatUnit::Count,
+    ),
+    ("Materials gathered", "materials_gathered", StatUnit::Count),
+    ("Materials used", "materials_used", StatUnit::Count),
+    ("Distance travelled", "distance", StatUnit::Distance),
+];
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum StatUnit {
+    Count,
+    Percent,
+    /// Centimetres in the replay, shown in kilometres.
+    Distance,
+}
+
+pub fn stat_text(p: &Prefs, unit: StatUnit, value: f64) -> String {
+    match unit {
+        StatUnit::Count => p.number(value, 0),
+        StatUnit::Percent => format!("{}%", p.number(value * 100.0, 0)),
+        StatUnit::Distance => format!("{} km", p.number(value / 100_000.0, 1)),
+    }
+}
+
+fn stats_card(span: i32, ctx: &Context) -> CardData {
+    let mut card = blank("stats", "table", span, ctx);
+    let p = ctx.prefs;
+    let with: Vec<&serde_json::Value> = ctx
+        .snap
+        .match_rows
+        .iter()
+        .filter_map(|r| r.stats.as_ref())
+        .collect();
+    if with.is_empty() {
+        card.note = s(
+            "No match stats yet. They come from replays LootLedger reads from now on, and from older replays Fortnite still keeps.",
+        );
+        return card;
+    }
+    let mut rows = vec![row(vec![
+        cell("", 3),
+        cell("Per match", 3),
+        cell("Best", 3),
+        cell("Total", 3),
+    ])];
+    for (label, key, unit) in MATCH_STATS {
+        let values: Vec<f64> = with.iter().filter_map(|st| st[*key].as_f64()).collect();
+        let total: f64 = values.iter().sum();
+        let best = values.iter().cloned().fold(0.0, f64::max);
+        let average = total / values.len().max(1) as f64;
+        let total_text = if *unit == StatUnit::Percent {
+            "–".to_owned()
+        } else {
+            stat_text(p, *unit, total)
+        };
+        rows.push(row(vec![
+            cell(*label, 0),
+            cell(stat_text(p, *unit, average), 1),
+            cell(stat_text(p, *unit, best), 4),
+            cell(total_text, 0),
+        ]));
+    }
+    card.table = model(rows);
+    card.note = s(format!(
+        "From {} of {} matches. Matches whose replay Fortnite has already deleted have no stats.",
+        with.len(),
+        ctx.snap
+            .match_rows
+            .iter()
+            .filter(|r| r.mode != "Manual")
+            .count()
+    ));
+    card
+}
+
 pub fn build(id: &str, span: i32, ctx: &Context) -> CardData {
     if let Some(key) = id.strip_prefix("stat:") {
         return stat_card(key, span, ctx);
@@ -1209,6 +1296,7 @@ pub fn build(id: &str, span: i32, ctx: &Context) -> CardData {
         "goals" => goals_card(span, ctx),
         "trophies" => trophies_card(span, ctx),
         "compare" => compare_card(span, ctx),
+        "stats" => stats_card(span, ctx),
         _ => blank(id, "table", span, ctx),
     }
 }

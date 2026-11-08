@@ -482,7 +482,7 @@ export component AppWindow inherits Window {
             drop-shadow-color: Tokens.shadow;
             VerticalLayout {
                 padding: Tokens.xs;
-                for item in ["Copy summary image", "Save summary image…"]: Rectangle {
+                for item in ["Copy summary image", "Save summary image…", "Copy weekly recap", "Save weekly recap…"]: Rectangle {
                     height: Tokens.button-height;
                     border-radius: Tokens.r-sm;
                     background: ta.has-hover ? Tokens.on-surface.with-alpha(0.08) : transparent;

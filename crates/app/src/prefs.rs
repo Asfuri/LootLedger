@@ -31,6 +31,7 @@ pub const WIDGETS: &[(&str, i32)] = &[
     ("goals", 1),
     ("trophies", 2),
     ("compare", 2),
+    ("stats", 2),
 ];
 pub const DEFAULT_LAYOUT: &[&str] = &[
     "live",

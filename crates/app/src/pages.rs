@@ -339,6 +339,19 @@ fn detail(ui: &AppWindow, r: &MatchRow, p: &Prefs, t: &Theme) {
         p.int(r.count)
     )));
     g.set_detail_favorite(r.favorite);
+    // The recorder's match stats, e.g. "Damage to players 867 · Accuracy 41% · ...".
+    let stats = r.stats.as_ref().map_or(String::new(), |st| {
+        crate::cards::MATCH_STATS
+            .iter()
+            .filter_map(|(label, key, unit)| {
+                st[*key]
+                    .as_f64()
+                    .map(|v| format!("{label} {}", crate::cards::stat_text(p, *unit, v)))
+            })
+            .collect::<Vec<_>>()
+            .join(" · ")
+    });
+    g.set_detail_stats(s(stats));
     g.set_detail_tags(s(r.tags.clone()));
     g.set_detail_note(s(r.note.clone()));
     let types = r.types.most_common();
