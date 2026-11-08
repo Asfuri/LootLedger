@@ -79,8 +79,10 @@ impl<'a> Bytes<'a> {
         if len < 0 {
             let raw = self.take(len.unsigned_abs() as usize * 2, what)?;
             let units: Vec<u16> = raw
-                .chunks_exact(2)
-                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_le_bytes(*c))
                 .collect();
             return Ok(String::from_utf16_lossy(&units)
                 .trim_end_matches('\0')
@@ -209,7 +211,7 @@ pub fn decrypt(info: &Info, data: &[u8]) -> Result<Vec<u8>> {
     }
     let cipher = aes::Aes256::new(GenericArray::from_slice(&info.key));
     let mut out = data.to_vec();
-    for block in out.chunks_exact_mut(16) {
+    for block in out.as_chunks_mut::<16>().0 {
         cipher.decrypt_block(GenericArray::from_mut_slice(block));
     }
     let pad = *out.last().ok_or(Error::Decrypt)? as usize;

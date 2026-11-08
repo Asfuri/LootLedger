@@ -24,9 +24,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.14'
-      - name: Install stable Rust
+      - name: Install the pinned Rust toolchain
         shell: pwsh
-        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+        run: rustup toolchain install  # the toolchain pinned in rust-toolchain.toml
       - name: Format, tests and preview build
         shell: pwsh
         run: |
