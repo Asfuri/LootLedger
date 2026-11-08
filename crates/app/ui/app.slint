@@ -61,13 +61,13 @@ component RailItem inherits VerticalLayout {
             animate width { duration: Tokens.medium; easing: cubic-bezier(0.05, 0.7, 0.1, 1); }
         }
         Icon { name: icon; color: selected ? Tokens.on-secondary-container : Tokens.on-surface-variant; }
-        area := TouchArea { mouse-cursor: pointer; clicked => { clicked(); } }
         focus := FocusScope {
             key-pressed(event) => {
                 if event.text == " " || event.text == "\n" { clicked(); return accept; }
                 reject
             }
         }
+        area := TouchArea { mouse-cursor: pointer; clicked => { clicked(); } }
         Rectangle {
             width: 60px;
             x: (parent.width - self.width) / 2;
@@ -401,6 +401,7 @@ export component AppWindow inherits Window {
             box := VerticalLayout {
                 padding: Tokens.xl;
                 spacing: Tokens.m;
+                alignment: start;
                 if dialog == 1: TextField {
                     placeholder: "Type a page, match, teammate or setting";
                     label: "Command search";
@@ -445,7 +446,9 @@ export component AppWindow inherits Window {
                         spacing: Tokens.l;
                         for cell[i] in row.cells: Text {
                             text: cell.text;
-                            width: row.cells.length > 1 && i == 0 ? 170px : self.preferred-width;
+                            // The last cell takes the remaining width, so long lines wrap inside the dialog.
+                            min-width: 0px;
+                            preferred-width: row.cells.length > 1 ? (i == 0 ? 170px : 330px) : 530px; // close to the real width, so the height estimate fits
                             horizontal-stretch: i == row.cells.length - 1 ? 1 : 0;
                             font-size: Tokens.body;
                             font-weight: cell.tone == 1 ? 600 : 400;

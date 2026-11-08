@@ -247,6 +247,13 @@ fn snapshots(ui: &AppWindow, dir: PathBuf) -> Timer {
             return;
         }
         let (page, scheme) = shots[n];
+        if std::env::args().any(|a| a == "--whats-new") {
+            let rows = WHATS_NEW
+                .iter()
+                .map(|line| vec![(format!("•  {line}"), 4)])
+                .collect();
+            info(&format!("What's new in {VERSION}"), rows, "");
+        }
         with_app(|a| a.prefs.theme = scheme.into());
         apply_theme();
         ui.set_page(page);

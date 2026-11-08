@@ -67,18 +67,18 @@ export component IconButton inherits Rectangle {
         size: size * 0.55;
         color: checked ? Tokens.on-secondary-container : !enabled ? Tokens.on-surface.with-alpha(0.38) : area.has-hover ? Tokens.on-surface : tint;
     }
-    area := TipArea {
-        tip: tip;
-        focused: focus.has-focus;
-        enabled: enabled;
-        clicked => { clicked(); }
-    }
     focus := FocusScope {
         enabled: enabled;
         key-pressed(event) => {
             if event.text == " " || event.text == "\n" { clicked(); return accept; }
             reject
         }
+    }
+    area := TipArea {
+        tip: tip;
+        focused: focus.has-focus;
+        enabled: enabled;
+        clicked => { clicked(); }
     }
     FocusRing { show: focus.has-focus; radius: parent.border-radius; }
 }
@@ -96,6 +96,7 @@ export component Button inherits Rectangle {
         : kind == "filled" ? Tokens.on-primary : kind == "tonal" ? Tokens.on-secondary-container
         : kind == "danger" ? Tokens.error : Tokens.primary;
     min-height: Tokens.button-height;
+    max-height: Tokens.button-height;
     min-width: label.preferred-width + (icon != "" ? 64px : 48px);
     horizontal-stretch: 0;
     border-radius: Tokens.pill(self.height);
@@ -123,18 +124,18 @@ export component Button inherits Rectangle {
             horizontal-alignment: center;
         }
     }
-    area := TipArea {
-        tip: tip;
-        focused: focus.has-focus;
-        enabled: enabled;
-        clicked => { clicked(); }
-    }
     focus := FocusScope {
         enabled: enabled;
         key-pressed(event) => {
             if event.text == " " || event.text == "\n" { clicked(); return accept; }
             reject
         }
+    }
+    area := TipArea {
+        tip: tip;
+        focused: focus.has-focus;
+        enabled: enabled;
+        clicked => { clicked(); }
     }
     FocusRing { show: focus.has-focus; radius: parent.border-radius; }
 }
@@ -168,15 +169,15 @@ export component Chip inherits Rectangle {
             vertical-alignment: center;
         }
     }
-    area := TouchArea {
-        mouse-cursor: pointer;
-        clicked => { toggled(!checked); }
-    }
     focus := FocusScope {
         key-pressed(event) => {
             if event.text == " " || event.text == "\n" { toggled(!checked); return accept; }
             reject
         }
+    }
+    area := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { toggled(!checked); }
     }
     FocusRing { show: focus.has-focus; radius: parent.border-radius; }
 }
@@ -208,15 +209,15 @@ export component Switch inherits Rectangle {
         animate x, width, height { duration: Tokens.short; easing: ease-out; }
         if checked: Icon { name: Icons.check; size: 16px; color: Tokens.primary; }
     }
-    area := TouchArea {
-        mouse-cursor: pointer;
-        clicked => { toggled(!checked); }
-    }
     focus := FocusScope {
         key-pressed(event) => {
             if event.text == " " || event.text == "\n" { toggled(!checked); return accept; }
             reject
         }
+    }
+    area := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { toggled(!checked); }
     }
     FocusRing { x: -3px; y: -3px; width: parent.width + 6px; height: parent.height + 6px; show: focus.has-focus; radius: parent.border-radius + 3px; }
 }
@@ -234,6 +235,13 @@ export component Segmented inherits Rectangle {
     clip: true;
     accessible-role: tab-list;
     accessible-label: label;
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.LeftArrow { changed(max(0, current - 1)); return accept; }
+            if event.text == Key.RightArrow { changed(min(options.length - 1, current + 1)); return accept; }
+            reject
+        }
+    }
     HorizontalLayout {
         for option[i] in options: Rectangle {
             min-width: text.preferred-width + (i == current ? 52px : 32px);
@@ -264,13 +272,6 @@ export component Segmented inherits Rectangle {
             }
             if i > 0: Rectangle { x: 0; width: 1px; background: Tokens.outline; }
             touch := TouchArea { mouse-cursor: pointer; clicked => { changed(i); } }
-        }
-    }
-    focus := FocusScope {
-        key-pressed(event) => {
-            if event.text == Key.LeftArrow { changed(max(0, current - 1)); return accept; }
-            if event.text == Key.RightArrow { changed(min(options.length - 1, current + 1)); return accept; }
-            reject
         }
     }
     FocusRing { show: focus.has-focus; radius: parent.border-radius; }
@@ -360,6 +361,13 @@ export component Slider inherits Rectangle {
         border-radius: Tokens.pill(20px);
         background: drag.has-hover ? Tokens.primary.mix(Tokens.on-primary, 0.92) : Tokens.primary;
     }
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.LeftArrow || event.text == Key.DownArrow { changed(max(minimum, value - 1)); return accept; }
+            if event.text == Key.RightArrow || event.text == Key.UpArrow { changed(min(maximum, value + 1)); return accept; }
+            reject
+        }
+    }
     drag := TouchArea {
         mouse-cursor: pointer;
         pointer-event(event) => {
@@ -368,13 +376,6 @@ export component Slider inherits Rectangle {
             }
         }
         moved => { changed(round(minimum + clamp(self.mouse-x / self.width, 0, 1) * (maximum - minimum))); }
-    }
-    focus := FocusScope {
-        key-pressed(event) => {
-            if event.text == Key.LeftArrow || event.text == Key.DownArrow { changed(max(minimum, value - 1)); return accept; }
-            if event.text == Key.RightArrow || event.text == Key.UpArrow { changed(min(maximum, value + 1)); return accept; }
-            reject
-        }
     }
     FocusRing { show: focus.has-focus; radius: Tokens.r-sm; }
 }
@@ -410,7 +411,6 @@ export component Select inherits Rectangle {
         }
         Icon { name: Icons.expand-more; size: 20px; }
     }
-    touch := TouchArea { mouse-cursor: pointer; clicked => { popup.show(); } }
     focus := FocusScope {
         key-pressed(event) => {
             if event.text == " " || event.text == "\n" { popup.show(); return accept; }
@@ -419,6 +419,7 @@ export component Select inherits Rectangle {
             reject
         }
     }
+    touch := TouchArea { mouse-cursor: pointer; clicked => { popup.show(); } }
     FocusRing { show: focus.has-focus; radius: parent.border-radius; }
     popup := PopupWindow {
         x: 0;

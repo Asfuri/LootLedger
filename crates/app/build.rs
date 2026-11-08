@@ -6,6 +6,8 @@ fn main() {
         println!("cargo:rerun-if-changed=assets/lootledger.rc");
         println!("cargo:rerun-if-changed=assets/lootledger.manifest");
         println!("cargo:rerun-if-changed=assets/lootledger.ico");
-        embed_resource::compile("assets/lootledger.rc", embed_resource::NONE).manifest_required().expect("embed Windows resources");
+        embed_resource::compile("assets/lootledger.rc", embed_resource::NONE)
+            .manifest_required()
+            .expect("embed Windows resources");
     }
 }

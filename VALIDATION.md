@@ -21,6 +21,9 @@ Verified in this migration session:
 - **Unit checks:** settings files (invalid values, old files, round trip), number and
   duration formats, theme colours equal to 0.7.1 for two seeds and WCAG contrast for
   every preset, hotkey parsing, dashboard packing, chart paths, config legacy fields.
+- **Fixed after the first hands-on test:** the rail and other controls needed two clicks,
+  because the keyboard-focus layer sat above the click area (now under it, in all eight
+  controls), and the What's new text ran outside its dialog (now wraps; re-rendered and checked).
 
 - **Replay decoder parity:** `scripts/golden_rust.py --old-jsonl target/golden/old.jsonl`
   decoded 100 local replays with the Rust decoder (`lootledger-cli decode`). Each was
