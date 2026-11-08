@@ -1,6 +1,0 @@
-{
-  "real_footage": false,
-  "scenarios": ["openings", "other_containers", "cancelled_searches", "overlapping_xp", "rapid_openings", "spectating"],
-  "openings": [12.34, 26.78],
-  "note": "Illustrative timestamps only. Replace with human-labelled personal openings in seconds. Set real_footage true only for actual gameplay. List only scenarios actually present. Supply at least 10 openings with negative examples to pass the minimum local gate."
-}

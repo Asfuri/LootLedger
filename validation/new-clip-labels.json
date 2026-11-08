@@ -1,7 +1,0 @@
-{
-  "real_footage": true,
-  "openings": [2.05, 8.25],
-  "scenarios": ["openings"],
-  "video_sha256": "7a0a3993a23da0184dfa8e11a7509a2fe9d53af7d5e786d9f6835d961eb1a2ee",
-  "note": "Visual annotations bracketed by closed/search frames at 2.0 and 8.2 seconds, then opened/loot frames at 2.1 and 8.3 seconds. Midpoints have approximately 0.05s uncertainty. Not used for model training; used for detector debugging, so subsequent results are development regressions, not held-out accuracy. No representative negative scenarios are supplied."
-}

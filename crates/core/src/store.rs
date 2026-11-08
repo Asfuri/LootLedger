@@ -884,7 +884,7 @@ pub fn export_rows(
 mod tests {
     use super::*;
     fn fixture() -> Replay {
-        serde_json::from_str(include_str!("../../../tests/fixtures/replay-squad.json")).unwrap()
+        serde_json::from_str(include_str!("../tests/fixtures/replay-squad.json")).unwrap()
     }
     #[test]
     fn reimport_keeps_corrections_notes_and_identity() {
@@ -957,8 +957,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut store = Store::open(dir.path().join("ledger.sqlite")).unwrap();
         let replay: Replay =
-            serde_json::from_str(include_str!("../../../tests/fixtures/replay-fallback.json"))
-                .unwrap();
+            serde_json::from_str(include_str!("../tests/fixtures/replay-fallback.json")).unwrap();
         store
             .import_replay(&replay, "fallback.replay", 1, 1.0)
             .unwrap();

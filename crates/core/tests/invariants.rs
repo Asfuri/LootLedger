@@ -9,7 +9,7 @@ proptest! {
     #[test]
     fn partial_to_final_reimport_never_double_counts_or_resurrects_corrections(
         cut in 0usize..170, repetitions in 1usize..5, include_broken in any::<bool>()) {
-        let full: Replay = serde_json::from_str(include_str!("../../../tests/fixtures/replay-squad.json")).unwrap();
+        let full: Replay = serde_json::from_str(include_str!("fixtures/replay-squad.json")).unwrap();
         let mut partial = full.clone();
         partial.events.truncate(cut);
         partial.ok = false;

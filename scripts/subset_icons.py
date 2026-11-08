@@ -1,16 +1,19 @@
-"""Subset the Material Symbols font to the icons the Rust app uses (15 MB -> a few KB).
+"""Subset the Material Symbols font to the icons the app uses (15 MB -> 17 KB).
 
-Needs fontTools (pip install fonttools). Writes crates/app/ui/icons.ttf and crates/app/ui/icons.slint, where
+    python scripts/subset_icons.py MaterialSymbolsRounded.ttf
+
+Get the font from https://github.com/google/material-design-icons (variablefont folder). Needs fontTools
+(pip install fonttools). Writes crates/app/ui/icons.ttf and crates/app/ui/icons.slint, where
 each icon is a string holding its codepoint, so no ligature shaping is needed at run time.
 """
 from pathlib import Path
+import sys
 
 from fontTools import subset
 from fontTools.ttLib import TTFont
 from fontTools.varLib import instancer
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "lootledger/assets/fonts/MaterialSymbolsRounded.ttf"
 NAMES = """
 all_inclusive today date_range calendar_month sports_esports query_stats trophy schedule timer list_alt
 play_circle trending_up category tune grid_on workspace_premium groups broken_image health_and_safety timelapse
@@ -24,7 +27,7 @@ favorite bolt sync lock celebration military_tech
 
 
 def main():
-    font = TTFont(SOURCE)
+    font = TTFont(sys.argv[1])
     best = font.getBestCmap()
     glyph_to_code = {}
     for code, glyph in best.items():

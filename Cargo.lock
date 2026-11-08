@@ -2810,14 +2810,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "lootledger-cli"
-version = "0.8.1"
-dependencies = [
- "lootledger-core",
- "serde_json",
-]
-
-[[package]]
 name = "lootledger-core"
 version = "0.8.1"
 dependencies = [

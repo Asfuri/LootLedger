@@ -342,8 +342,7 @@ mod tests {
     #[test]
     fn fixture_totals_and_stable_identities() {
         let r: Replay =
-            serde_json::from_str(include_str!("../../../tests/fixtures/replay-squad.json"))
-                .unwrap();
+            serde_json::from_str(include_str!("../tests/fixtures/replay-squad.json")).unwrap();
         r.validate().unwrap();
         let (mine, meta) = r.summarize();
         assert!(!mine.is_empty());

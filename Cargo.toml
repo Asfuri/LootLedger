@@ -1,13 +1,13 @@
 [workspace]
 resolver = "2"
-members = ["crates/core", "crates/app", "crates/cli"]
+members = ["crates/core", "crates/app"]
 
 [workspace.package]
 version = "0.8.1"
 edition = "2024"
 license = "MIT"
 
-# Small and fast: measured choices are recorded in docs/PERF.md.
+# Small and fast: one optimised unit, no unwinding, no symbols.
 [profile.release]
 opt-level = 3
 lto = "fat"

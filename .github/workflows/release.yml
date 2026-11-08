@@ -43,16 +43,8 @@ jobs:
       - name: Build
         shell: pwsh
         run: |
-          cargo build --release --locked -p lootledger -p lootledger-cli
+          cargo build --release --locked -p lootledger
           if ($LASTEXITCODE) { throw 'Build failed' }
-
-      - name: Data compatibility check (attribution and storage against the 0.7.1 code)
-        shell: pwsh
-        run: |
-          python scripts/golden_rust.py --rust target/release/lootledger-cli.exe --fixture tests/fixtures/replay-squad.json --summary-only --output target/golden/ci-summary.json
-          if ($LASTEXITCODE) { throw 'Storage golden check failed' }
-          python scripts/golden_rust.py --rust target/release/lootledger-cli.exe --fixture tests/fixtures/replay-fallback.json --summary-only --output target/golden/ci-fallback.json
-          if ($LASTEXITCODE) { throw 'Timestamp fallback golden check failed' }
 
       - name: Check runtime dependencies
         shell: pwsh

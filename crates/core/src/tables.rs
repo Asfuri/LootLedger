@@ -1,4 +1,5 @@
-// Generated from the vendored UnrealNames.cs (MIT); run scripts/generate_unreal_tables.py.
+// Generated once from FortniteReplayDecompressor (MIT, commit 76f74c1): UnrealNames.cs and the
+// FortPlayerState, GameState and PlayerPawn field lists. See THIRD_PARTY.md.
 use crate::replay::Kind;
 
 pub const UNREAL_NAMES: &[(u32, &str)] = &[
