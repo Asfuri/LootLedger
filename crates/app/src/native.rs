@@ -7,11 +7,11 @@ use slint::{
 };
 use std::{cell::RefCell, ffi::c_void, mem::size_of};
 use windows::Win32::{
-    Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM},
+    Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM},
     Graphics::{Dwm::*, Gdi::*},
     UI::{
         Controls::MARGINS,
-        HiDpi::GetDpiForWindow,
+        HiDpi::{GetDpiForWindow, GetSystemMetricsForDpi},
         Input::KeyboardAndMouse::{HOT_KEY_MODIFIERS, RegisterHotKey, UnregisterHotKey},
         Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass},
         WindowsAndMessaging::*,
@@ -226,6 +226,33 @@ unsafe fn autohide_edges(monitor: HMONITOR) -> [bool; 4] {
     }
 }
 
+/// The taskbar and Alt+Tab icon: winit leaves the window without one, so load the exe's own icon (resource 1).
+unsafe fn set_icon(hwnd: HWND) {
+    unsafe {
+        let module = HINSTANCE(GetWindowLongPtrW(hwnd, GWLP_HINSTANCE) as *mut c_void);
+        let dpi = GetDpiForWindow(hwnd).max(96);
+        for (kind, metric) in [(ICON_BIG, SM_CXICON), (ICON_SMALL, SM_CXSMICON)] {
+            let size = GetSystemMetricsForDpi(metric, dpi);
+            let icon = LoadImageW(
+                Some(module),
+                windows::core::PCWSTR(std::ptr::without_provenance(1)), // MAKEINTRESOURCE(1)
+                IMAGE_ICON,
+                size,
+                size,
+                LR_DEFAULTCOLOR,
+            );
+            if let Ok(icon) = icon {
+                SendMessageW(
+                    hwnd,
+                    WM_SETICON,
+                    Some(WPARAM(kind as usize)),
+                    Some(LPARAM(icon.0 as isize)),
+                );
+            }
+        }
+    }
+}
+
 unsafe fn decorate(hwnd: HWND) {
     MAIN.with(|m| m.set(hwnd.0 as isize));
     unsafe {
@@ -240,6 +267,7 @@ unsafe fn decorate(hwnd: HWND) {
                 | WS_MAXIMIZEBOX.0
                 | WS_MINIMIZEBOX.0) as isize,
         );
+        set_icon(hwnd);
         if !SetWindowSubclass(hwnd, Some(proc), 1, 0).as_bool() {
             return;
         }

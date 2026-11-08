@@ -728,6 +728,9 @@ fn apply_timers(scan_timer: &Timer, live_timer: &Timer) {
 // ---- Replays and the live match ------------------------------------------------------------------
 
 fn scan() {
+    if std::env::args().any(|a| a.starts_with("--snap=")) {
+        return; // screenshot runs show the ledger as it is and never import replays
+    }
     let Some((folder, path, include_broken)) = with_app(|app| {
         if app.scanning || app.store.is_none() {
             return None;
