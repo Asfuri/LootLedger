@@ -27,5 +27,5 @@ What has been checked, and what has not. Earlier history (the Python app and the
 - A live match from start to finish, the pop-out counter over Fortnite, the chime, and global shortcuts.
 - Dragging dashboard cards, tooltips and the clipboard copy with a real mouse.
 - Aero Snap, the snap layout popup, an auto-hiding taskbar, display scaling above 100%, mixed-DPI monitors and screen readers.
-- A real update from one release to the next (0.8.1 is the first release with the updater), and updating behind a proxy or from a protected folder such as Program Files.
+- A real update from one release to the next (0.8.1 was the first release with the updater; 0.8.2 is the first update it can install), and updating behind a proxy or from a protected folder such as Program Files.
 - Performance of the full app: cold start, memory, idle CPU and frame rate. The exe is 16.5 MB, above the 10 MB goal.

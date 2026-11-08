@@ -1865,11 +1865,9 @@ const PAGE_NAMES: [&str; 6] = [
     "Teammates",
     "Settings",
 ];
-const WHATS_NEW: [&str; 5] = [
-    "Match stats: damage, accuracy, eliminations, assists, revives, materials and distance for each match, from your replays. See them in a match's details and in the new Match stats card (Statistics, or add it to Overview).",
-    "Weekly recap: a shareable image of your week (chests, matches, best match, change from last week, top teammate). Share it from Overview or Ctrl+K.",
-    "Automatic updates: LootLedger downloads new versions from its GitHub releases, checks them, and installs them when you close it. Turn it off in Settings → About.",
-    "Fixed: tabs and buttons needed two clicks, and this window's text could run outside the box.",
+const WHATS_NEW: [&str; 3] = [
+    "LootLedger now shows its icon on the taskbar and in Alt+Tab.",
+    "Updates install themselves when you close LootLedger. Turn this off in Settings → About.",
     "Your data still never leaves this PC; only the version check and the download go over the internet.",
 ];
 
