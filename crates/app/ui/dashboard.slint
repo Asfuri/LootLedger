@@ -1,0 +1,366 @@
+// Dashboard cards and the grid that places them in columns (each card spans one or two). In edit mode each
+// card can be dragged by its handle, moved with buttons or the keyboard, resized and removed.
+import { Tokens, Tip, Drag } from "tokens.slint";
+import { Icons } from "icons.slint";
+import { CardData, DashRow, Cell, TableRow } from "types.slint";
+import { Icon, IconButton, Segmented, TextField, Card, SectionText } from "controls.slint";
+import { Sparkline, SeriesChart, Donut, Ring, Heatmap, BarRows, Timeline, Pulse, Anim } from "charts.slint";
+
+export global Dash {
+    in property <bool> editing;
+    in property <[string]> style-names: ["Bar", "Line", "Smooth", "Area"];
+    callback move(int, int);          // from index, to index
+    callback resize(int, int);        // index, span
+    callback remove(int);
+    callback trend-range(string, int);
+    callback trend-grain(string, int);
+    callback chart-style(int);
+    callback compare-date(string, int, string);
+    callback open(string);            // a card asks to open a page or a match
+}
+
+component Table inherits VerticalLayout {
+    in property <[TableRow]> rows;
+    spacing: Tokens.xs;
+    for row in rows: HorizontalLayout {
+        spacing: Tokens.m;
+        if row.has-dot: Rectangle {
+            width: 10px;
+            height: 10px;
+            y: (parent.height - 10px) / 2;
+            border-radius: Tokens.pill(10px);
+            background: row.dot;
+        }
+        for cell[i] in row.cells: Text {
+            text: cell.text;
+            horizontal-stretch: i == (row.has-dot ? 0 : 0) ? 1 : 0;
+            min-width: i == 0 ? 60px : 56px;
+            horizontal-alignment: i == 0 ? left : right;
+            font-size: cell.tone == 3 ? Tokens.label : cell.tone == 1 ? Tokens.title : Tokens.body;
+            font-weight: cell.tone == 1 || cell.tone == 3 ? 600 : 400;
+            color: cell.tone == 0 || cell.tone == 3 ? Tokens.on-surface-variant : cell.tone == 2 ? Tokens.primary : Tokens.on-surface;
+            vertical-alignment: center;
+            wrap: i == 0 ? word-wrap : no-wrap;
+        }
+    }
+}
+
+component Lines inherits VerticalLayout {
+    in property <[Cell]> lines;
+    in property <color> ink;
+    in property <bool> custom-ink;
+    spacing: Tokens.xs;
+    for line in lines: Text {
+        text: line.text;
+        wrap: word-wrap;
+        font-size: Tokens.body;
+        color: custom-ink ? ink : line.tone == 0 ? Tokens.on-surface-variant : line.tone == 2 ? Tokens.primary : line.tone == 3 ? Tokens.error : Tokens.on-surface;
+    }
+}
+
+export component CardView inherits Rectangle {
+    in property <CardData> card;
+    in property <int> index;
+    in property <bool> editable;
+    in property <length> unit; // one column's width
+    width: card.span * unit + (card.span - 1) * Tokens.m;
+    property <bool> stat: card.kind == "stat";
+    property <color> ink: card.accent ? Tokens.on-primary-container : Tokens.on-surface;
+    property <color> muted: card.accent ? Tokens.on-primary-container : Tokens.on-surface-variant;
+    property <bool> dragging: Drag.from == index && editable;
+    property <bool> is-target: editable && Drag.from >= 0 && Drag.from != index
+        && Drag.x >= self.absolute-position.x && Drag.x < self.absolute-position.x + self.width
+        && Drag.y >= self.absolute-position.y && Drag.y < self.absolute-position.y + self.height;
+    changed is-target => { if is-target { Drag.target = index; } else if Drag.target == index { Drag.target = -1; } }
+    min-height: stat ? 196px : 120px;
+    opacity: dragging ? 0.5 : 1;
+    accessible-role: groupbox;
+    accessible-label: card.title;
+    Card {
+        title: card.title;
+        icon: card.icon;
+        accent: card.accent;
+        // ---- Stat tile
+        if card.kind == "stat": VerticalLayout {
+            spacing: Tokens.xs;
+            vertical-stretch: 1;
+            Text { text: card.value; font-size: Tokens.display; font-weight: 600; color: ink; }
+            if card.detail != "": Text { text: card.detail; font-size: Tokens.body; color: muted; wrap: word-wrap; }
+            if card.delta != "": Text {
+                text: card.delta;
+                font-size: Tokens.body;
+                color: card.delta-tone == 2 ? Tokens.primary : Tokens.on-surface-variant;
+                wrap: word-wrap;
+            }
+            Rectangle { vertical-stretch: 1; }
+            if card.spark-line != "": Sparkline { line: card.spark-line; area: card.spark-area; tips: card.spark-tips; }
+        }
+        // ---- Current match
+        if card.kind == "live": VerticalLayout {
+            spacing: Tokens.xs;
+            HorizontalLayout {
+                spacing: Tokens.s;
+                Pulse { y: (parent.height - 12px) / 2; ink: card.live-dot; pulsing: card.live-pulse; }
+                Text { text: card.detail; color: ink; font-size: Tokens.body; vertical-alignment: center; horizontal-stretch: 1; }
+            }
+            HorizontalLayout {
+                spacing: Tokens.m;
+                alignment: start;
+                Text { text: card.value; font-size: Tokens.display; font-weight: 600; color: ink; }
+                pop := Text {
+                    property <int> shown-id: card.pop-id;
+                    text: card.pop;
+                    font-size: Tokens.display;
+                    font-weight: 600;
+                    color: card.pop-color;
+                    opacity: 0;
+                    changed shown-id => {
+                        if Tokens.full-motion { self.opacity = 1; fade.running = true; }
+                    }
+                    fade := Timer {
+                        interval: 1200ms;
+                        running: false;
+                        triggered => { pop.opacity = 0; self.running = false; }
+                    }
+                    animate opacity { duration: 600ms; easing: ease-out; }
+                }
+            }
+            Lines { lines: card.lines; ink: ink; custom-ink: true; }
+            if card.show-timeline: Timeline { marks: card.marks; saved: card.saved; end: card.timeline-end; ink: ink; }
+            Rectangle { vertical-stretch: 1; }
+        }
+        // ---- Chests over time
+        if card.kind == "trend": VerticalLayout {
+            spacing: Tokens.s;
+            vertical-stretch: 1;
+            HorizontalLayout {
+                spacing: Tokens.s;
+                alignment: start;
+                Segmented {
+                    options: ["7d", "30d", "90d", "All"];
+                    current: card.range-index;
+                    label: "Date range";
+                    changed(i) => { Dash.trend-range(card.id, i); }
+                }
+                Segmented {
+                    options: ["Day", "Week", "Month"];
+                    current: card.grain-index;
+                    label: "Group by";
+                    changed(i) => { Dash.trend-grain(card.id, i); }
+                }
+            }
+            SeriesChart {
+                points: card.points;
+                axis: card.axis;
+                line: card.line;
+                area: card.area;
+                style: card.style-index;
+                empty: card.empty;
+            }
+            HorizontalLayout {
+                spacing: Tokens.s;
+                Text { text: card.caption; color: Tokens.on-surface-variant; font-size: Tokens.body; vertical-alignment: center; horizontal-stretch: 1; wrap: word-wrap; }
+                Segmented {
+                    options: Dash.style-names;
+                    current: card.style-index;
+                    label: "Chart style";
+                    changed(i) => { Dash.chart-style(i); }
+                }
+            }
+        }
+        // ---- Chest types: donut and table
+        if card.kind == "types": VerticalLayout {
+            spacing: Tokens.s;
+            HorizontalLayout {
+                spacing: Tokens.l;
+                Donut { slices: card.slices; center-text: card.center; caption: card.caption; }
+                Table { rows: card.table; horizontal-stretch: 1; }
+            }
+            if card.note != "": SectionText { text: card.note; }
+            Rectangle { vertical-stretch: 1; }
+        }
+        // ---- Bars with a heading value and notes (modes, team, sessions)
+        if card.kind == "bars": VerticalLayout {
+            spacing: Tokens.s;
+            if card.value != "": Text { text: card.value; font-size: Tokens.display; font-weight: 600; color: ink; }
+            Lines { lines: card.lines; }
+            BarRows { rows: card.bars; }
+            if card.note != "": SectionText { text: card.note; }
+            Rectangle { vertical-stretch: 1; }
+        }
+        // ---- Heatmap
+        if card.kind == "heat": VerticalLayout {
+            spacing: Tokens.s;
+            Heatmap { cells: card.heat; vertical-stretch: 1; }
+            SectionText { text: card.note; }
+        }
+        // ---- Tables (records, searched vs broken)
+        if card.kind == "table": VerticalLayout {
+            spacing: Tokens.s;
+            Table { rows: card.table; }
+            if card.note != "": SectionText { text: card.note; }
+            Rectangle { vertical-stretch: 1; }
+        }
+        // ---- Setup and replay health
+        if card.kind == "health": VerticalLayout {
+            spacing: Tokens.s;
+            for check in card.checks: HorizontalLayout {
+                spacing: Tokens.s;
+                Icon {
+                    name: check.ok ? Icons.check-circle : Icons.error;
+                    color: check.ok ? Tokens.primary : Tokens.error;
+                    vertical-alignment: top;
+                    accessible-role: text;
+                    accessible-label: check.ok ? "Done" : "Needs attention";
+                }
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    Text { text: check.title; color: Tokens.on-surface; font-size: Tokens.body; wrap: word-wrap; }
+                    if check.fix != "": Text { text: check.fix; color: Tokens.on-surface-variant; font-size: Tokens.body; wrap: word-wrap; }
+                }
+            }
+            SectionText { text: card.note; }
+            Rectangle { vertical-stretch: 1; }
+        }
+        // ---- Goals
+        if card.kind == "goals": VerticalLayout {
+            spacing: Tokens.s;
+            if card.rings.length > 0: HorizontalLayout {
+                spacing: Tokens.l;
+                alignment: space-around;
+                for ring in card.rings: Ring { data: ring; }
+            }
+            SectionText { text: card.note; }
+            Rectangle { vertical-stretch: 1; }
+        }
+        // ---- Trophies
+        if card.kind == "trophies": VerticalLayout {
+            property <int> columns: card.span > 1 ? 5 : 3;
+            spacing: Tokens.s;
+            SectionText { text: card.note; }
+            grid := Rectangle {
+                property <length> cell-w: self.width / columns;
+                height: ceil(card.trophies.length / columns) * 78px;
+                for t[i] in card.trophies: Rectangle {
+                    x: mod(i, columns) * grid.cell-w;
+                    y: floor(i / columns) * 78px;
+                    width: grid.cell-w;
+                    height: 74px;
+                    accessible-role: text;
+                    accessible-label: t.title + (t.unlocked ? ", unlocked: " : ", locked: ") + t.detail;
+                    VerticalLayout {
+                        alignment: start;
+                        spacing: Tokens.xxs;
+                        Icon { name: Icons.trophy; size: Tokens.headline; color: t.unlocked ? Tokens.primary : Tokens.outline-variant; }
+                        Text {
+                            text: t.title;
+                            font-size: Tokens.label;
+                            font-weight: t.unlocked ? 600 : 400;
+                            color: t.unlocked ? Tokens.on-surface : Tokens.on-surface-variant;
+                            horizontal-alignment: center;
+                            wrap: word-wrap;
+                        }
+                    }
+                    TouchArea {
+                        property <string> tip: t.detail + (t.unlocked ? " · unlocked" : " · locked");
+                        changed has-hover => {
+                            if self.has-hover { Tip.text = tip; Tip.x = self.absolute-position.x + self.width / 2; Tip.y = self.absolute-position.y; Tip.above = true; }
+                            else if Tip.text == tip { Tip.text = ""; }
+                        }
+                    }
+                }
+            }
+        }
+        // ---- Compare two periods
+        if card.kind == "compare": VerticalLayout {
+            spacing: Tokens.s;
+            for name[p] in ["First", "Second"]: HorizontalLayout {
+                spacing: Tokens.s;
+                Text { text: name; width: 64px; color: Tokens.on-surface-variant; font-size: Tokens.body; vertical-alignment: center; }
+                TextField {
+                    width: 140px;
+                    text: card.dates[p * 2];
+                    label: name + " period from";
+                    accepted(text) => { Dash.compare-date(card.id, p * 2, text); }
+                }
+                Text { text: "to"; color: Tokens.on-surface-variant; font-size: Tokens.body; vertical-alignment: center; }
+                TextField {
+                    width: 140px;
+                    text: card.dates[p * 2 + 1];
+                    label: name + " period to";
+                    accepted(text) => { Dash.compare-date(card.id, p * 2 + 1, text); }
+                }
+                Rectangle { horizontal-stretch: 1; }
+            }
+            Table { rows: card.table; }
+            if card.note != "": SectionText { text: card.note; }
+            Rectangle { vertical-stretch: 1; }
+        }
+    }
+    // ---- Edit controls
+    if editable && Dash.editing: Rectangle {
+        x: parent.width - self.width - 8px;
+        y: 6px;
+        width: tools.preferred-width;
+        height: 36px;
+        border-radius: Tokens.pill(self.height);
+        background: Tokens.container-highest;
+        tools := HorizontalLayout {
+            padding-left: Tokens.xxs;
+            padding-right: Tokens.xxs;
+            IconButton { y: 2px; size: 32px; icon: Icons.arrow-back; tip: "Move earlier"; enabled: index > 0; clicked => { Dash.move(index, index - 1); } }
+            IconButton { y: 2px; size: 32px; icon: Icons.arrow-forward; tip: "Move later"; clicked => { Dash.move(index, index + 1); } }
+            IconButton {
+                y: 2px;
+                size: 32px;
+                icon: card.span > 1 ? Icons.close-fullscreen : Icons.open-in-full;
+                tip: card.span > 1 ? "Make narrow" : "Make wide";
+                clicked => { Dash.resize(index, card.span > 1 ? 1 : 2); }
+            }
+            IconButton { y: 2px; size: 32px; icon: Icons.close; tip: "Remove from the dashboard"; clicked => { Dash.remove(index); } }
+            handle := Rectangle {
+                width: 32px;
+                Icon { name: Icons.drag-indicator; size: 20px; }
+                TouchArea {
+                    mouse-cursor: move;
+                    pointer-event(event) => {
+                        if event.kind == PointerEventKind.down { Drag.from = index; Drag.target = -1; }
+                        if event.kind == PointerEventKind.up {
+                            if Drag.target >= 0 && Drag.target != index { Dash.move(index, Drag.target); }
+                            Drag.from = -1;
+                            Drag.target = -1;
+                        }
+                    }
+                    moved => {
+                        Drag.x = self.absolute-position.x + self.mouse-x;
+                        Drag.y = self.absolute-position.y + self.mouse-y;
+                    }
+                }
+                accessible-role: none;
+            }
+        }
+    }
+    if is-target: Rectangle {
+        border-radius: Tokens.r-card;
+        border-width: 3px;
+        border-color: Tokens.primary;
+        background: Tokens.primary.with-alpha(0.08);
+    }
+}
+
+// Rows of cards. `columns` is reported to Rust, which packs the cards into rows.
+export component DashGrid inherits VerticalLayout {
+    in property <[DashRow]> rows;
+    in property <bool> editable;
+    out property <int> columns: max(1, floor((self.width + Tokens.m) / (270px + Tokens.m)));
+    callback columns-changed(int);
+    changed columns => { columns-changed(columns); }
+    init => { columns-changed(columns); }
+    property <length> unit: (self.width - (columns - 1) * Tokens.m) / columns;
+    spacing: Tokens.m;
+    for row in rows: HorizontalLayout {
+        spacing: Tokens.m;
+        alignment: start;
+        for card[i] in row.cards: CardView { card: card; index: row.first + i; editable: editable; unit: unit; }
+    }
+}

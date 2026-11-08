@@ -2,12 +2,25 @@
 
 # Unreleased Rust migration (7 November 2026)
 
-The Python v0.7.1 application remains the production reference. The Rust app is
-a read-only preview on `rust-port`; it has not passed full parser or UI parity
-and must not replace the release. See [docs/MIGRATION.md](docs/MIGRATION.md),
+The Python v0.7.1 application remains the released version. The Rust app on
+`rust-port` now has the 0.7.1 features and reads and writes the same data; it is
+not released yet. See [docs/MIGRATION.md](docs/MIGRATION.md),
 [the feature inventory](docs/FEATURES.md) and [baseline measurements](docs/PERF.md).
 
 Verified in this migration session:
+
+- **Statistics parity:** on a copy of the real ledger (131 replay matches, 3,181 chests),
+  the Rust statistics matched the Python app's snapshot on all 36 compared fields:
+  totals, today/week/month and their comparisons, average, median, best, playtime,
+  streaks, peak hour, heatmap, types, modes, teammates board, sessions and per-match rows.
+- **Screens:** off-screen screenshots of all six pages in dark and light, with real data:
+  every dashboard card, Matches with its detail panel, Openings with its timeline,
+  Teammates with its profile, Settings, and the 1200×630 summary image. Fixed during
+  review: pages opening scrolled down, square ends on segmented buttons, column
+  edges not lining up across dashboard rows, stale chest colours after a theme change.
+- **Unit checks:** settings files (invalid values, old files, round trip), number and
+  duration formats, theme colours equal to 0.7.1 for two seeds and WCAG contrast for
+  every preset, hotkey parsing, dashboard packing, chart paths, config legacy fields.
 
 - **Replay decoder parity:** `scripts/golden_rust.py --old-jsonl target/golden/old.jsonl`
   decoded 100 local replays with the Rust decoder (`lootledger-cli decode`). Each was
@@ -60,9 +73,9 @@ Still unverified or unfinished:
 
 - **Live import and overlay:** Rust chest decoding/import handoff, complete live
   states, counts/sounds, overlay, click-through and real-game behavior.
-- **UI parity:** dashboard customization, all cards/charts and tooltips, filters,
-  profiles, correction/data actions, sessions/goals/trophies, settings and palette,
-  command palette, shortcuts, onboarding, image sharing and notifications.
+- **Interactive UI on a real display:** dragging cards, tooltips, dialogs, the
+  pop-out counter (drag, click-through, opacity), global hotkeys and clipboard copy
+  were built but only checked through screenshots and unit tests so far.
 - **Window/display:** actual mouse dragging, Aero Snap and Snap Layout popup,
   Win+Arrow, taskbar auto-hide, native animations, window-state persistence,
   disconnected-monitor recovery, 100/125/150% displays and mixed-DPI moves,

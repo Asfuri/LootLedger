@@ -1,0 +1,42 @@
+// The shareable 1200×630 summary card, rendered off-screen and saved or copied; never uploaded.
+
+export component Summary inherits Window {
+    title: "LootLedger summary";
+    default-font-family: "Segoe UI";
+    no-frame: true;
+    width: 1200px;
+    height: 630px;
+    in property <color> surface;
+    in property <color> card;
+    in property <color> ink;
+    in property <length> radius;
+    in property <string> heading;
+    in property <string> total;
+    in property <[string]> names;
+    in property <[string]> values;
+    in property <string> footer;
+    background: surface;
+    Rectangle {
+        x: 40px;
+        y: 40px;
+        width: 1120px;
+        height: 550px;
+        border-radius: radius;
+        background: card;
+        Text { x: 50px; y: 30px; text: heading; font-size: 30px; font-weight: 600; color: ink; }
+        Text { x: 50px; y: 100px; text: total; font-size: 120px; font-weight: 600; color: ink; }
+        Text { x: 50px; y: 250px; text: "chests opened, all time"; font-size: 28px; color: ink; }
+        for name[i] in names: Text { x: 50px + i * 265px; y: 360px; width: 250px; text: name; font-size: 22px; color: ink; }
+        for value[i] in values: Text {
+            x: 50px + i * 265px;
+            y: 395px;
+            width: 250px;
+            text: value;
+            font-size: i < 3 ? 40px : 26px;
+            font-weight: 600;
+            color: ink;
+            overflow: elide;
+        }
+        Text { x: 50px; y: 480px; text: footer; font-size: 20px; color: ink; }
+    }
+}

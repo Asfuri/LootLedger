@@ -1,0 +1,586 @@
+// Shared Material 3 controls. Colours, sizes and radii come from Tokens only.
+import { Tokens, Tip } from "tokens.slint";
+import { Icons } from "icons.slint";
+
+export component Icon inherits Text {
+    in property <string> name;
+    in property <length> size: Tokens.icon;
+    text: name;
+    font-family: Icons.family;
+    font-size: size;
+    color: Tokens.on-surface-variant;
+    horizontal-alignment: center;
+    vertical-alignment: center;
+    accessible-role: none;
+}
+
+// Shows the window tooltip while the pointer or keyboard focus is on `area`.
+export component TipArea inherits TouchArea {
+    in property <string> tip;
+    in property <bool> focused;
+    property <bool> showing: (self.has-hover || focused) && tip != "";
+    changed showing => {
+        if showing {
+            Tip.text = tip;
+            Tip.x = self.absolute-position.x + self.width / 2;
+            Tip.y = self.absolute-position.y + self.height;
+            Tip.above = false;
+        } else if Tip.text == tip {
+            Tip.text = "";
+        }
+    }
+    mouse-cursor: pointer;
+}
+
+export component FocusRing inherits Rectangle {
+    in property <bool> show;
+    in property <length> radius;
+    border-width: show ? 2px : 0px;
+    border-color: Tokens.primary;
+    border-radius: radius;
+    background: transparent;
+}
+
+export component IconButton inherits Rectangle {
+    in property <string> icon;
+    in property <string> tip;
+    in property <bool> checked;
+    in property <bool> enabled: true;
+    in property <length> size: 40px;
+    in property <color> tint: Tokens.on-surface-variant;
+    callback clicked;
+    width: size;
+    height: size;
+    border-radius: Tokens.pill(size);
+    background: checked ? Tokens.secondary-container
+        : !enabled ? transparent
+        : area.pressed ? Tokens.layer(Tokens.surface, Tokens.on-surface, 0.12)
+        : area.has-hover ? Tokens.layer(Tokens.surface, Tokens.on-surface, 0.08) : transparent;
+    animate background { duration: Tokens.short; }
+    accessible-role: button;
+    accessible-label: tip;
+    accessible-checked: checked;
+    accessible-action-default => { if enabled { clicked(); } }
+    forward-focus: focus;
+    Icon {
+        name: icon;
+        size: size * 0.55;
+        color: checked ? Tokens.on-secondary-container : !enabled ? Tokens.on-surface.with-alpha(0.38) : area.has-hover ? Tokens.on-surface : tint;
+    }
+    area := TipArea {
+        tip: tip;
+        focused: focus.has-focus;
+        enabled: enabled;
+        clicked => { clicked(); }
+    }
+    focus := FocusScope {
+        enabled: enabled;
+        key-pressed(event) => {
+            if event.text == " " || event.text == "\n" { clicked(); return accept; }
+            reject
+        }
+    }
+    FocusRing { show: focus.has-focus; radius: parent.border-radius; }
+}
+
+// kind: "filled", "tonal" (default), "outlined", "text" or "danger"
+export component Button inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    in property <string> kind: "tonal";
+    in property <bool> enabled: true;
+    in property <string> tip;
+    callback clicked;
+    property <color> fill: kind == "filled" ? Tokens.primary : kind == "tonal" ? Tokens.secondary-container : transparent;
+    property <color> ink: !enabled ? Tokens.on-surface.with-alpha(0.38)
+        : kind == "filled" ? Tokens.on-primary : kind == "tonal" ? Tokens.on-secondary-container
+        : kind == "danger" ? Tokens.error : Tokens.primary;
+    min-height: Tokens.button-height;
+    min-width: label.preferred-width + (icon != "" ? 64px : 48px);
+    horizontal-stretch: 0;
+    border-radius: Tokens.pill(self.height);
+    border-width: kind == "outlined" ? 1px : kind == "danger" ? 1px : 0px;
+    border-color: kind == "danger" ? Tokens.error : Tokens.outline;
+    background: !enabled ? (kind == "filled" || kind == "tonal" ? Tokens.on-surface.with-alpha(0.12) : transparent)
+        : area.pressed ? fill.mix(ink, 0.88) : area.has-hover ? (fill == transparent ? ink.with-alpha(0.08) : fill.mix(ink, 0.92)) : fill;
+    animate background { duration: Tokens.short; }
+    accessible-role: button;
+    accessible-label: text;
+    accessible-action-default => { if enabled { clicked(); } }
+    forward-focus: focus;
+    HorizontalLayout {
+        padding-left: icon != "" ? 16px : 24px;
+        padding-right: Tokens.xl;
+        spacing: Tokens.s;
+        alignment: center;
+        if icon != "": Icon { name: icon; size: 18px; color: ink; }
+        label := Text {
+            text: root.text;
+            color: ink;
+            font-size: Tokens.body;
+            font-weight: 600;
+            vertical-alignment: center;
+            horizontal-alignment: center;
+        }
+    }
+    area := TipArea {
+        tip: tip;
+        focused: focus.has-focus;
+        enabled: enabled;
+        clicked => { clicked(); }
+    }
+    focus := FocusScope {
+        enabled: enabled;
+        key-pressed(event) => {
+            if event.text == " " || event.text == "\n" { clicked(); return accept; }
+            reject
+        }
+    }
+    FocusRing { show: focus.has-focus; radius: parent.border-radius; }
+}
+
+export component Chip inherits Rectangle {
+    in property <string> text;
+    in property <bool> checked;
+    callback toggled(bool);
+    height: 32px;
+    min-width: label.preferred-width + (checked ? 44px : 26px);
+    border-radius: Tokens.sharp ? Tokens.r-xs : Tokens.r-sm;
+    border-width: checked ? 0px : 1px;
+    border-color: Tokens.outline;
+    background: checked ? Tokens.secondary-container : area.has-hover ? Tokens.on-surface.with-alpha(0.08) : transparent;
+    animate background { duration: Tokens.short; }
+    accessible-role: checkbox;
+    accessible-checked: checked;
+    accessible-label: text;
+    accessible-action-default => { toggled(!checked); }
+    forward-focus: focus;
+    HorizontalLayout {
+        padding-left: Tokens.m;
+        padding-right: Tokens.m;
+        spacing: Tokens.xs;
+        alignment: center;
+        if checked: Icon { name: Icons.check; size: 18px; color: Tokens.on-secondary-container; }
+        label := Text {
+            text: root.text;
+            font-size: Tokens.body;
+            color: checked ? Tokens.on-secondary-container : Tokens.on-surface-variant;
+            vertical-alignment: center;
+        }
+    }
+    area := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { toggled(!checked); }
+    }
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == " " || event.text == "\n" { toggled(!checked); return accept; }
+            reject
+        }
+    }
+    FocusRing { show: focus.has-focus; radius: parent.border-radius; }
+}
+
+export component Switch inherits Rectangle {
+    in property <bool> checked;
+    in property <string> label;
+    callback toggled(bool);
+    width: 52px;
+    height: 32px;
+    border-radius: Tokens.pill(self.height);
+    background: checked ? Tokens.primary : Tokens.container-highest;
+    border-width: checked ? 0px : 2px;
+    border-color: Tokens.outline;
+    animate background { duration: Tokens.short; }
+    accessible-role: switch;
+    accessible-checked: checked;
+    accessible-label: label;
+    accessible-action-default => { toggled(!checked); }
+    forward-focus: focus;
+    handle := Rectangle {
+        property <length> size: checked ? 24px : area.pressed ? 28px : 16px;
+        width: size;
+        height: size;
+        x: checked ? parent.width - self.width - 4px : (area.pressed ? 2px : 8px);
+        y: (parent.height - self.height) / 2;
+        border-radius: Tokens.sharp ? Tokens.r-xs : self.height / 2;
+        background: checked ? Tokens.on-primary : Tokens.outline;
+        animate x, width, height { duration: Tokens.short; easing: ease-out; }
+        if checked: Icon { name: Icons.check; size: 16px; color: Tokens.primary; }
+    }
+    area := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { toggled(!checked); }
+    }
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == " " || event.text == "\n" { toggled(!checked); return accept; }
+            reject
+        }
+    }
+    FocusRing { x: -3px; y: -3px; width: parent.width + 6px; height: parent.height + 6px; show: focus.has-focus; radius: parent.border-radius + 3px; }
+}
+
+// A Material segmented button: one choice of several, the selected one with a check.
+export component Segmented inherits Rectangle {
+    in property <[string]> options;
+    in property <int> current;
+    in property <string> label;
+    callback changed(int);
+    height: Tokens.button-height;
+    border-radius: Tokens.pill(self.height);
+    border-width: 1px;
+    border-color: Tokens.outline;
+    clip: true;
+    accessible-role: tab-list;
+    accessible-label: label;
+    HorizontalLayout {
+        for option[i] in options: Rectangle {
+            min-width: text.preferred-width + (i == current ? 52px : 32px);
+            // The ends follow the pill shape, so a selected end segment has no square corners.
+            border-top-left-radius: i == 0 ? root.border-radius : 0px;
+            border-bottom-left-radius: i == 0 ? root.border-radius : 0px;
+            border-top-right-radius: i == options.length - 1 ? root.border-radius : 0px;
+            border-bottom-right-radius: i == options.length - 1 ? root.border-radius : 0px;
+            background: i == current ? Tokens.secondary-container : touch.has-hover ? Tokens.on-surface.with-alpha(0.08) : transparent;
+            animate background { duration: Tokens.short; }
+            accessible-role: tab;
+            accessible-label: option;
+            accessible-checked: i == current;
+            accessible-action-default => { changed(i); }
+            HorizontalLayout {
+                padding-left: Tokens.m;
+                padding-right: Tokens.m;
+                spacing: Tokens.xs;
+                alignment: center;
+                if i == current: Icon { name: Icons.check; size: 18px; color: Tokens.on-secondary-container; }
+                text := Text {
+                    text: option;
+                    font-size: Tokens.body;
+                    font-weight: 500;
+                    color: i == current ? Tokens.on-secondary-container : Tokens.on-surface;
+                    vertical-alignment: center;
+                }
+            }
+            if i > 0: Rectangle { x: 0; width: 1px; background: Tokens.outline; }
+            touch := TouchArea { mouse-cursor: pointer; clicked => { changed(i); } }
+        }
+    }
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.LeftArrow { changed(max(0, current - 1)); return accept; }
+            if event.text == Key.RightArrow { changed(min(options.length - 1, current + 1)); return accept; }
+            reject
+        }
+    }
+    FocusRing { show: focus.has-focus; radius: parent.border-radius; }
+}
+
+// A single-line text field with Material outline styling.
+export component TextField inherits Rectangle {
+    in-out property <string> text <=> input.text;
+    in property <string> placeholder;
+    in property <string> label;
+    in property <string> leading-icon;
+    callback edited(string);
+    callback accepted(string);
+    height: Tokens.button-height;
+    min-width: 120px;
+    border-radius: Tokens.sharp ? Tokens.r-xs : Tokens.r-md;
+    background: Tokens.container-highest;
+    border-width: input.has-focus ? 2px : 1px;
+    border-color: input.has-focus ? Tokens.primary : hover.has-hover ? Tokens.outline : Tokens.outline-variant;
+    accessible-role: text-input;
+    accessible-label: label != "" ? label : placeholder;
+    accessible-value: text;
+    forward-focus: input;
+    hover := TouchArea { mouse-cursor: MouseCursor.text; clicked => { input.focus(); } }
+    HorizontalLayout {
+        padding-left: Tokens.m;
+        padding-right: Tokens.m;
+        spacing: Tokens.s;
+        if leading-icon != "": Icon { name: leading-icon; size: 20px; }
+        Rectangle {
+            Text {
+                visible: input.text == "";
+                text: placeholder;
+                color: Tokens.on-surface-variant;
+                font-size: Tokens.body;
+                x: 0;
+                vertical-alignment: center;
+                height: parent.height;
+                overflow: elide;
+            }
+            input := TextInput {
+                font-size: Tokens.body;
+                color: Tokens.on-surface;
+                vertical-alignment: center;
+                single-line: true;
+                selection-background-color: Tokens.primary;
+                selection-foreground-color: Tokens.on-primary;
+                edited => { root.edited(self.text); }
+                accepted => { root.accepted(self.text); }
+                changed has-focus => { if !self.has-focus { root.accepted(self.text); } }
+            }
+        }
+        if input.text != "" && input.has-focus: IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: Icons.close;
+            tip: "Clear";
+            size: 28px;
+            clicked => { input.text = ""; root.edited(""); }
+        }
+    }
+}
+
+export component Slider inherits Rectangle {
+    in property <int> value;
+    in property <int> minimum: 0;
+    in property <int> maximum: 100;
+    in property <string> label;
+    callback changed(int);
+    property <float> share: (value - minimum) / max(1, maximum - minimum);
+    width: 220px;
+    height: 32px;
+    accessible-role: slider;
+    accessible-label: label;
+    accessible-value: value;
+    accessible-value-minimum: minimum;
+    accessible-value-maximum: maximum;
+    accessible-action-increment => { changed(min(maximum, value + 1)); }
+    accessible-action-decrement => { changed(max(minimum, value - 1)); }
+    forward-focus: focus;
+    Rectangle { y: (parent.height - 4px) / 2; height: 4px; border-radius: Tokens.pill(4px); background: Tokens.container-highest; }
+    Rectangle { x: 0; y: (parent.height - 4px) / 2; width: parent.width * share; height: 4px; border-radius: Tokens.pill(4px); background: Tokens.primary; }
+    Rectangle {
+        width: 20px;
+        height: 20px;
+        x: (parent.width - self.width) * share;
+        y: (parent.height - self.height) / 2;
+        border-radius: Tokens.pill(20px);
+        background: drag.has-hover ? Tokens.primary.mix(Tokens.on-primary, 0.92) : Tokens.primary;
+    }
+    drag := TouchArea {
+        mouse-cursor: pointer;
+        pointer-event(event) => {
+            if event.kind == PointerEventKind.down || (event.kind == PointerEventKind.move && self.pressed) {
+                changed(round(minimum + clamp(self.mouse-x / self.width, 0, 1) * (maximum - minimum)));
+            }
+        }
+        moved => { changed(round(minimum + clamp(self.mouse-x / self.width, 0, 1) * (maximum - minimum))); }
+    }
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == Key.LeftArrow || event.text == Key.DownArrow { changed(max(minimum, value - 1)); return accept; }
+            if event.text == Key.RightArrow || event.text == Key.UpArrow { changed(min(maximum, value + 1)); return accept; }
+            reject
+        }
+    }
+    FocusRing { show: focus.has-focus; radius: Tokens.r-sm; }
+}
+
+// A select (dropdown) with a themed popup menu.
+export component Select inherits Rectangle {
+    in property <[string]> options;
+    in property <int> current;
+    in property <string> label;
+    callback changed(int);
+    height: Tokens.button-height;
+    min-width: max(140px, text.preferred-width + 64px);
+    border-radius: Tokens.pill(self.height);
+    background: Tokens.container-highest;
+    border-width: 1px;
+    border-color: touch.has-hover ? Tokens.outline : Tokens.outline-variant;
+    accessible-role: combobox;
+    accessible-label: label;
+    accessible-value: options[current];
+    accessible-action-default => { popup.show(); }
+    forward-focus: focus;
+    HorizontalLayout {
+        padding-left: Tokens.l;
+        padding-right: Tokens.s;
+        spacing: Tokens.xs;
+        text := Text {
+            text: options[current];
+            font-size: Tokens.body;
+            color: Tokens.on-surface;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+        Icon { name: Icons.expand-more; size: 20px; }
+    }
+    touch := TouchArea { mouse-cursor: pointer; clicked => { popup.show(); } }
+    focus := FocusScope {
+        key-pressed(event) => {
+            if event.text == " " || event.text == "\n" { popup.show(); return accept; }
+            if event.text == Key.UpArrow { changed(max(0, current - 1)); return accept; }
+            if event.text == Key.DownArrow { changed(min(options.length - 1, current + 1)); return accept; }
+            reject
+        }
+    }
+    FocusRing { show: focus.has-focus; radius: parent.border-radius; }
+    popup := PopupWindow {
+        x: 0;
+        y: root.height + 4px;
+        width: max(root.width, 180px);
+        Rectangle {
+            background: Tokens.container-high;
+            border-radius: Tokens.sharp ? Tokens.r-xs : Tokens.r-md;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: Tokens.shadow;
+            drop-shadow-offset-y: 4px;
+            VerticalLayout {
+                padding: Tokens.xs;
+                for option[i] in options: Rectangle {
+                    height: Tokens.button-height - 4px;
+                    border-radius: Tokens.sharp ? Tokens.r-xs : Tokens.r-sm;
+                    background: i == current ? Tokens.secondary-container : item.has-hover ? Tokens.on-surface.with-alpha(0.08) : transparent;
+                    Text {
+                        x: 12px;
+                        text: option;
+                        font-size: Tokens.body;
+                        color: i == current ? Tokens.on-secondary-container : Tokens.on-surface;
+                        vertical-alignment: center;
+                        height: parent.height;
+                    }
+                    item := TouchArea { mouse-cursor: pointer; clicked => { changed(i); } }
+                }
+            }
+        }
+    }
+}
+
+// A number stepper with an optional "special" text for the minimum and a preset menu.
+export component Stepper inherits Rectangle {
+    in property <int> value;
+    in property <int> minimum: 0;
+    in property <int> maximum: 100;
+    in property <int> step: 1;
+    in property <string> special;
+    in property <string> prefix;
+    in property <string> suffix;
+    in property <string> label;
+    in property <[string]> preset-names;
+    in property <[int]> preset-values;
+    callback changed(int);
+    property <string> shown: value == minimum && special != "" ? special : prefix + value + suffix;
+    height: Tokens.button-height;
+    min-width: 200px;
+    border-radius: Tokens.pill(self.height);
+    background: Tokens.container-highest;
+    border-width: 1px;
+    border-color: Tokens.outline-variant;
+    accessible-role: spinbox;
+    accessible-label: label;
+    accessible-value: shown;
+    accessible-action-increment => { changed(min(maximum, value + step)); }
+    accessible-action-decrement => { changed(max(minimum, value - step)); }
+    HorizontalLayout {
+        padding-left: Tokens.xs;
+        padding-right: Tokens.xs;
+        IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: Icons.remove;
+            tip: "Less";
+            size: 32px;
+            enabled: value > minimum;
+            clicked => { changed(max(minimum, value - step)); }
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+            entry := TextInput {
+                text: shown;
+                font-size: Tokens.body;
+                color: Tokens.on-surface;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                single-line: true;
+                accepted => {
+                    if self.text.is-float() { changed(clamp(self.text.to-float(), minimum, maximum)); }
+                    else { self.text = shown; }
+                }
+                changed has-focus => {
+                    if self.has-focus && value == minimum && special != "" { self.text = ""; }
+                    else if !self.has-focus && self.text.is-float() { changed(clamp(self.text.to-float(), minimum, maximum)); }
+                    else if !self.has-focus { self.text = shown; }
+                }
+            }
+        }
+        if preset-names.length > 0: IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: Icons.expand-more;
+            tip: "Presets";
+            size: 32px;
+            clicked => { presets.show(); }
+        }
+        IconButton {
+            y: (parent.height - self.height) / 2;
+            icon: Icons.add;
+            tip: "More";
+            size: 32px;
+            enabled: value < maximum;
+            clicked => { changed(min(maximum, value + step)); }
+        }
+    }
+    presets := PopupWindow {
+        x: root.width - 180px;
+        y: root.height + 4px;
+        width: 180px;
+        Rectangle {
+            background: Tokens.container-high;
+            border-radius: Tokens.sharp ? Tokens.r-xs : Tokens.r-md;
+            drop-shadow-blur: 12px;
+            drop-shadow-color: Tokens.shadow;
+            VerticalLayout {
+                padding: Tokens.xs;
+                for name[i] in preset-names: Rectangle {
+                    height: Tokens.button-height - 4px;
+                    border-radius: Tokens.sharp ? Tokens.r-xs : Tokens.r-sm;
+                    background: preset-values[i] == value ? Tokens.secondary-container : item.has-hover ? Tokens.on-surface.with-alpha(0.08) : transparent;
+                    Text { x: 12px; height: parent.height; text: name; font-size: Tokens.body; color: Tokens.on-surface; vertical-alignment: center; }
+                    item := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { if preset-values[i] < 0 { entry.focus(); } else { changed(preset-values[i]); } }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// A dashboard or settings card: icon, title and content.
+export component Card inherits Rectangle {
+    in property <string> title;
+    in property <string> icon;
+    in property <bool> accent;
+    border-radius: Tokens.r-card;
+    background: accent ? Tokens.primary-container : Tokens.container-high;
+    property <color> ink: accent ? Tokens.on-primary-container : Tokens.on-surface-variant;
+    accessible-role: groupbox;
+    accessible-label: title;
+    VerticalLayout {
+        padding: Tokens.l;
+        spacing: Tokens.s;
+        HorizontalLayout {
+            spacing: Tokens.s;
+            if icon != "": Icon { name: icon; size: 20px; color: ink; }
+            Text {
+                text: title;
+                font-size: Tokens.label;
+                font-weight: 600;
+                color: ink;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+        }
+        @children
+    }
+}
+
+export component SectionText inherits Text {
+    in property <int> tone; // 0 muted, 1 normal, 2 primary, 3 error
+    font-size: Tokens.body;
+    color: tone == 0 ? Tokens.on-surface-variant : tone == 2 ? Tokens.primary : tone == 3 ? Tokens.error : Tokens.on-surface;
+    wrap: word-wrap;
+}

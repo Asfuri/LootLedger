@@ -1,0 +1,469 @@
+// Matches, Openings and Teammates: filters, a virtualized sortable table, and a detail panel each.
+import { ListView } from "std-widgets.slint";
+import { Tokens, Tip } from "tokens.slint";
+import { Icons } from "icons.slint";
+import { BarRow, ChartPoint, Mark } from "types.slint";
+import { Icon, IconButton, Button, Chip, TextField, Select, Stepper, SectionText } from "controls.slint";
+import { BarRows, SeriesChart, Timeline } from "charts.slint";
+
+export struct Row { id: string, cells: [string], ink: color, has-ink: bool, share: float }
+
+export global Pages {
+    // Matches
+    in property <[Row]> matches;
+    in property <string> match-count;
+    in property <bool> match-empty;
+    in property <[string]> modes: ["All modes"];
+    in property <[string]> types: ["All types"];
+    in property <[string]> ranges: ["Last 7 days", "Last 30 days", "Last 90 days", "All time"];
+    in-out property <int> match-range: 1;
+    in-out property <int> match-mode;
+    in-out property <int> match-type;
+    in-out property <int> match-minimum;
+    in-out property <bool> match-favorites;
+    in-out property <string> match-search;
+    in property <int> match-sort: 0;
+    in property <bool> match-descending: true;
+    in property <string> selected-match;
+    // Match detail
+    in property <string> detail-title;
+    in property <string> detail-sub;
+    in property <bool> detail-favorite;
+    in property <string> detail-tags;
+    in property <string> detail-note;
+    in property <[BarRow]> detail-types;
+    in property <[Mark]> detail-marks;
+    in property <string> detail-end;
+    in property <string> detail-squad-note;
+    in property <[Row]> detail-squad;
+    // Openings
+    in property <[Row]> entries;
+    in property <[string]> match-names: ["All matches"];
+    in-out property <int> entry-match;
+    in-out property <int> entry-type;
+    in-out property <int> entry-status;
+    in-out property <string> entry-search;
+    in property <int> entry-sort: 0;
+    in property <bool> entry-descending: true;
+    in property <string> selected-entry;
+    in property <string> open-title;
+    in property <[Mark]> open-marks;
+    in property <string> open-end;
+    in property <bool> entry-empty;
+    // Teammates
+    in property <[Row]> people;
+    in-out property <int> team-mode;
+    in-out property <int> team-range: 1;
+    in-out property <int> team-minimum;
+    in property <int> team-sort: 2;
+    in property <bool> team-descending: true;
+    in property <string> selected-person;
+    in property <string> team-count;
+    in property <string> team-note;
+    in property <[string]> records: ["–", "", "–", "", "–", ""];
+    in property <string> profile-title;
+    in property <string> profile-sub;
+    in property <string> profile-stats;
+    in property <[BarRow]> profile-types;
+    in property <[ChartPoint]> profile-points;
+    in property <[string]> profile-axis;
+    in property <string> profile-line;
+    in property <string> profile-area;
+    in property <int> chart-style;
+    in property <[Row]> profile-matches;
+    // Correct-entry dialog
+    in-out property <bool> correcting;
+    in-out property <string> correct-type;
+    in-out property <int> correct-count: 1;
+    in property <string> correct-reason;
+
+    callback changed(string);          // a filter changed: "matches", "entries" or "team"
+    callback sort(string, int);        // table, column
+    callback select(string, string);   // table, row id
+    callback note(string, string);     // field ("tags", "note", "favorite"), value
+    callback action(string);           // undo, export, add, remove, restore, correct, apply-correct, export-csv, export-json
+}
+
+// A sortable, virtualized table. `widths` are relative column widths; columns after the first are right-aligned
+// unless `left` says otherwise.
+export component DataTable inherits Rectangle {
+    in property <[string]> headers;
+    in property <[float]> widths;
+    in property <[Row]> rows;
+    in property <int> sort-column: -1;
+    in property <bool> descending;
+    in property <string> selected;
+    in property <int> left-columns: 1;
+    in property <int> share-column: -1;
+    in property <string> label;
+    callback sort(int);
+    callback select(string);
+    callback activate(string);
+    border-radius: Tokens.r-lg;
+    background: Tokens.container-low;
+    clip: true;
+    accessible-role: table;
+    accessible-label: label;
+    VerticalLayout {
+        padding: Tokens.s;
+        Rectangle {
+            height: Tokens.button-height;
+            border-radius: Tokens.r-sm;
+            background: Tokens.container-high;
+            HorizontalLayout {
+                padding-left: Tokens.s;
+                padding-right: Tokens.s;
+                for title[c] in headers: Rectangle {
+                    horizontal-stretch: widths[c];
+                    min-width: 0px;
+                    preferred-width: 0px;
+                    background: head.has-hover ? Tokens.on-surface.with-alpha(0.06) : transparent;
+                    accessible-role: button;
+                    accessible-label: "Sort by " + title;
+                    accessible-action-default => { sort(c); }
+                    HorizontalLayout {
+                        padding-left: Tokens.s;
+                        padding-right: Tokens.s;
+                        spacing: Tokens.xxs;
+                        alignment: c < left-columns ? start : end;
+                        Text {
+                            text: title;
+                            font-size: Tokens.label;
+                            font-weight: 600;
+                            color: Tokens.on-surface-variant;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                        if c == sort-column: Icon { name: descending ? Icons.arrow-downward : Icons.arrow-upward; size: 14px; }
+                    }
+                    head := TouchArea { mouse-cursor: pointer; clicked => { sort(c); } }
+                }
+            }
+        }
+        ListView {
+            for row[r] in rows: Rectangle {
+                height: Tokens.button-height;
+                border-radius: Tokens.r-sm;
+                background: row.id == selected ? Tokens.secondary-container : touch.has-hover ? Tokens.on-surface.with-alpha(0.05) : transparent;
+                accessible-role: list-item;
+                accessible-label: row.cells[0];
+                accessible-item-selected: row.id == selected;
+                accessible-action-default => { select(row.id); }
+                HorizontalLayout {
+                    padding-left: Tokens.s;
+                    padding-right: Tokens.s;
+                    for text[c] in row.cells: Rectangle {
+                        horizontal-stretch: widths[c];
+                    min-width: 0px;
+                    preferred-width: 0px;
+                        if c == share-column: HorizontalLayout {
+                            padding-left: Tokens.s;
+                            padding-right: Tokens.s;
+                            spacing: Tokens.s;
+                            Rectangle {
+                                height: 8px;
+                                y: (parent.height - self.height) / 2;
+                                border-radius: Tokens.r-xs;
+                                background: Tokens.container-highest;
+                                Rectangle { x: 0; width: parent.width * row.share; border-radius: Tokens.r-xs; background: Tokens.primary; }
+                            }
+                            Text { text: text; font-size: Tokens.label; color: Tokens.on-surface-variant; vertical-alignment: center; }
+                        }
+                        if c != share-column: Text {
+                            x: Tokens.s;
+                            width: parent.width - 2 * Tokens.s;
+                            text: text;
+                            font-size: Tokens.body;
+                            color: row.id == selected ? Tokens.on-secondary-container : c == 1 && row.has-ink ? row.ink : Tokens.on-surface;
+                            horizontal-alignment: c < left-columns ? left : right;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                    }
+                }
+                touch := TouchArea {
+                    clicked => { select(row.id); }
+                    double-clicked => { activate(row.id); }
+                }
+            }
+        }
+    }
+}
+
+component FilterBar inherits HorizontalLayout {
+    spacing: Tokens.s;
+    alignment: start;
+}
+
+export component MatchesPage inherits VerticalLayout {
+    spacing: Tokens.m;
+    FilterBar {
+        TextField {
+            width: 260px;
+            leading-icon: Icons.search;
+            placeholder: "Search mode, date, tag or note";
+            text: Pages.match-search;
+            edited(t) => { Pages.match-search = t; Pages.changed("matches"); }
+        }
+        Select { options: Pages.ranges; current: Pages.match-range; label: "Date range"; changed(i) => { Pages.match-range = i; Pages.changed("matches"); } }
+        Select { options: Pages.modes; current: Pages.match-mode; label: "Game mode"; changed(i) => { Pages.match-mode = i; Pages.changed("matches"); } }
+        Select { options: Pages.types; current: Pages.match-type; label: "Chest type"; changed(i) => { Pages.match-type = i; Pages.changed("matches"); } }
+        Stepper {
+            width: 200px;
+            value: Pages.match-minimum;
+            maximum: 999;
+            special: "Any count";
+            prefix: "At least ";
+            label: "Minimum chests";
+            changed(v) => { Pages.match-minimum = v; Pages.changed("matches"); }
+        }
+        Chip { text: "★ Favourites"; checked: Pages.match-favorites; toggled(on) => { Pages.match-favorites = on; Pages.changed("matches"); } }
+    }
+    Text { text: Pages.match-count; font-size: Tokens.body; color: Tokens.on-surface-variant; }
+    if Pages.match-empty: SectionText { text: "No matches yet. Turn on Record Replays in Fortnite, finish a match, and it appears here."; }
+    DataTable {
+        vertical-stretch: Pages.selected-match != "" ? 2 : 1;
+        min-height: 160px;
+        label: "Matches";
+        headers: ["Date", "Mode", "Place", "Chests", "Broken", "Teammates", "Ammo", "Length"];
+        widths: [1.6, 1.8, 1, 0.8, 0.8, 1, 0.7, 0.8];
+        left-columns: 2;
+        rows: Pages.matches;
+        sort-column: Pages.match-sort;
+        descending: Pages.match-descending;
+        selected: Pages.selected-match;
+        sort(c) => { Pages.sort("matches", c); }
+        select(id) => { Pages.select("matches", id); }
+    }
+    if Pages.selected-match != "": Rectangle {
+        vertical-stretch: 3;
+        min-height: 300px;
+        border-radius: Tokens.r-lg;
+        background: Tokens.container-low;
+        VerticalLayout {
+            padding: Tokens.l;
+            spacing: Tokens.m;
+            HorizontalLayout {
+                spacing: Tokens.s;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    Text { text: Pages.detail-title; font-size: Tokens.title; font-weight: 600; color: Tokens.on-surface; }
+                    Text { text: Pages.detail-sub; font-size: Tokens.body; color: Tokens.on-surface-variant; wrap: word-wrap; }
+                }
+                IconButton {
+                    icon: Icons.star;
+                    tip: "Favourite match";
+                    checked: Pages.detail-favorite;
+                    clicked => { Pages.note("favorite", Pages.detail-favorite ? "false" : "true"); }
+                }
+                IconButton { icon: Icons.close; tip: "Close match details"; clicked => { Pages.select("matches", ""); } }
+            }
+            HorizontalLayout {
+                spacing: Tokens.s;
+                TextField {
+                    horizontal-stretch: 1;
+                    text: Pages.detail-tags;
+                    placeholder: "Tags, e.g. ranked, with randoms";
+                    label: "Match tags";
+                    accepted(t) => { Pages.note("tags", t); }
+                }
+                TextField {
+                    horizontal-stretch: 2;
+                    text: Pages.detail-note;
+                    placeholder: "Note";
+                    label: "Match note";
+                    accepted(t) => { Pages.note("note", t); }
+                }
+            }
+            HorizontalLayout {
+                spacing: Tokens.xl;
+                BarRows { rows: Pages.detail-types; horizontal-stretch: 1; }
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: Tokens.xs;
+                    Text { text: "Openings during the match"; font-size: Tokens.label; font-weight: 600; color: Tokens.on-surface-variant; }
+                    Timeline { marks: Pages.detail-marks; end: Pages.detail-end; ink: Tokens.on-surface-variant; }
+                }
+            }
+            Text { text: "Squad: what each player opened or broke"; font-size: Tokens.label; font-weight: 600; color: Tokens.on-surface-variant; }
+            if Pages.detail-squad-note != "": SectionText { text: Pages.detail-squad-note; }
+            DataTable {
+                vertical-stretch: 1;
+                min-height: 120px;
+                label: "Squad";
+                headers: ["Player", "Chests", "Searched", "Broken open", "Share of squad", "Types"];
+                widths: [1.8, 0.7, 0.8, 0.9, 1.4, 2.6];
+                left-columns: 1;
+                share-column: 4;
+                rows: Pages.detail-squad;
+                background: Tokens.container;
+            }
+        }
+    }
+}
+
+export component OpeningsPage inherits VerticalLayout {
+    spacing: Tokens.m;
+    Text { text: Pages.open-title; font-size: Tokens.label; font-weight: 600; color: Tokens.on-surface-variant; }
+    Timeline { marks: Pages.open-marks; end: Pages.open-end; ink: Tokens.on-surface-variant; }
+    FilterBar {
+        TextField {
+            width: 240px;
+            leading-icon: Icons.search;
+            placeholder: "Search type or details";
+            text: Pages.entry-search;
+            edited(t) => { Pages.entry-search = t; Pages.changed("entries"); }
+        }
+        Select { width: 320px; options: Pages.match-names; current: Pages.entry-match; label: "Match"; changed(i) => { Pages.entry-match = i; Pages.changed("entries"); } }
+        Select { options: Pages.types; current: Pages.entry-type; label: "Chest type"; changed(i) => { Pages.entry-type = i; Pages.changed("entries"); } }
+        Select { options: ["Counted", "Removed", "All statuses"]; current: Pages.entry-status; label: "Status"; changed(i) => { Pages.entry-status = i; Pages.changed("entries"); } }
+    }
+    if Pages.entry-empty: SectionText { text: "No openings yet. Play a match with Record Replays on."; }
+    DataTable {
+        vertical-stretch: 1;
+        label: "Openings";
+        headers: ["When", "Type", "How", "Count", "Status", "Details"];
+        widths: [1.4, 1.4, 1, 0.6, 0.8, 2.4];
+        left-columns: 3;
+        rows: Pages.entries;
+        sort-column: Pages.entry-sort;
+        descending: Pages.entry-descending;
+        selected: Pages.selected-entry;
+        sort(c) => { Pages.sort("entries", c); }
+        select(id) => { Pages.select("entries", id); }
+        activate(id) => { Pages.select("entries", id); Pages.action("correct"); }
+    }
+    HorizontalLayout {
+        spacing: Tokens.s;
+        alignment: start;
+        Button { text: "Remove entry"; enabled: Pages.selected-entry != ""; clicked => { Pages.action("remove"); } }
+        Button { text: "Restore entry"; enabled: Pages.selected-entry != ""; clicked => { Pages.action("restore"); } }
+        Button { text: "Correct entry…"; enabled: Pages.selected-entry != ""; clicked => { Pages.action("correct"); } }
+    }
+}
+
+export component TeammatesPage inherits VerticalLayout {
+    spacing: Tokens.m;
+    FilterBar {
+        Select { options: Pages.modes; current: Pages.team-mode; label: "Game mode"; changed(i) => { Pages.team-mode = i; Pages.changed("team"); } }
+        Select { options: Pages.ranges; current: Pages.team-range; label: "Date range"; changed(i) => { Pages.team-range = i; Pages.changed("team"); } }
+        Stepper {
+            width: 280px;
+            value: Pages.team-minimum;
+            maximum: 999;
+            special: "Any number of matches";
+            prefix: "At least ";
+            suffix: " matches";
+            label: "Minimum matches together";
+            changed(v) => { Pages.team-minimum = v; Pages.changed("team"); }
+        }
+        Rectangle { horizontal-stretch: 1; }
+        IconButton { icon: Icons.table-view; tip: "Export as CSV"; clicked => { Pages.action("export-csv"); } }
+        IconButton { icon: Icons.data-object; tip: "Export as JSON"; clicked => { Pages.action("export-json"); } }
+    }
+    Text { text: Pages.team-count; font-size: Tokens.body; color: Tokens.on-surface-variant; }
+    SectionText { text: Pages.team-note; }
+    Rectangle {
+        border-radius: Tokens.r-lg;
+        background: Tokens.container-low;
+        HorizontalLayout {
+            padding: Tokens.m;
+            spacing: Tokens.m;
+            for title[i] in ["Most chests", "Best single match", "Played most with"]: VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: Tokens.xxs;
+                Text { text: title; font-size: Tokens.body; color: Tokens.on-surface-variant; }
+                Text { text: Pages.records[i * 2]; font-size: Tokens.title; font-weight: 600; color: Tokens.on-surface; wrap: word-wrap; }
+                Text { text: Pages.records[i * 2 + 1]; font-size: Tokens.body; color: Tokens.on-surface-variant; wrap: word-wrap; }
+            }
+        }
+    }
+    DataTable {
+        min-height: 280px;
+        vertical-stretch: 1;
+        label: "Teammates";
+        headers: ["Player", "Matches", "Chests", "Per match", "Searched", "Broken", "Rare+", "Best"];
+        widths: [2.2, 0.8, 0.8, 0.9, 0.9, 0.8, 0.7, 0.7];
+        rows: Pages.people;
+        sort-column: Pages.team-sort;
+        descending: Pages.team-descending;
+        selected: Pages.selected-person;
+        sort(c) => { Pages.sort("team", c); }
+        select(id) => { Pages.select("team", id); }
+    }
+    if Pages.selected-person != "": Rectangle {
+        border-radius: Tokens.r-lg;
+        background: Tokens.container-low;
+        VerticalLayout {
+            padding: Tokens.l;
+            spacing: Tokens.s;
+            Text { text: Pages.profile-title; font-size: Tokens.title; font-weight: 600; color: Tokens.on-surface; }
+            Text { text: Pages.profile-sub; font-size: Tokens.body; color: Tokens.on-surface-variant; }
+            SectionText { text: Pages.profile-stats; }
+            HorizontalLayout {
+                spacing: Tokens.xl;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: Tokens.s;
+                    Text { text: "Chest types"; font-size: Tokens.label; font-weight: 600; color: Tokens.on-surface-variant; }
+                    BarRows { rows: Pages.profile-types; }
+                    Rectangle { vertical-stretch: 1; }
+                }
+                VerticalLayout {
+                    horizontal-stretch: 2;
+                    spacing: Tokens.s;
+                    Text { text: "Chests per match"; font-size: Tokens.label; font-weight: 600; color: Tokens.on-surface-variant; }
+                    SeriesChart {
+                        min-height: 200px;
+                        points: Pages.profile-points;
+                        axis: Pages.profile-axis;
+                        line: Pages.profile-line;
+                        area: Pages.profile-area;
+                        style: Pages.chart-style;
+                        empty: Pages.profile-points.length == 0 ? "Matches together will chart here" : "";
+                    }
+                    DataTable {
+                        height: 220px;
+                        label: "Matches together";
+                        headers: ["When", "Mode", "Their chests", "Your chests"];
+                        widths: [1.4, 1.6, 1, 1];
+                        left-columns: 2;
+                        rows: Pages.profile-matches;
+                        background: Tokens.container;
+                    }
+                }
+            }
+        }
+    }
+}
+
+// The correct-entry dialog, over a scrim.
+export component CorrectDialog inherits Rectangle {
+    background: Tokens.shadow;
+    TouchArea { clicked => { Pages.correcting = false; } }
+    Rectangle {
+        width: 420px;
+        height: box.preferred-height;
+        border-radius: Tokens.r-xl;
+        background: Tokens.container-high;
+        accessible-role: groupbox;
+        accessible-label: "Correct opening";
+        TouchArea { }
+        box := VerticalLayout {
+            padding: Tokens.xl;
+            spacing: Tokens.m;
+            Text { text: "Correct opening"; font-size: Tokens.headline; color: Tokens.on-surface; }
+            Text { text: "Chest type"; font-size: Tokens.label; color: Tokens.on-surface-variant; }
+            TextField { text: Pages.correct-type; label: "Chest type"; edited(t) => { Pages.correct-type = t; } }
+            Text { text: "Count"; font-size: Tokens.label; color: Tokens.on-surface-variant; }
+            Stepper { value: Pages.correct-count; minimum: 1; maximum: 10000; label: "Count"; changed(v) => { Pages.correct-count = v; } }
+            SectionText { text: Pages.correct-reason; }
+            HorizontalLayout {
+                spacing: Tokens.s;
+                alignment: end;
+                Button { text: "Cancel"; kind: "text"; clicked => { Pages.correcting = false; } }
+                Button { text: "Save"; kind: "filled"; clicked => { Pages.action("apply-correct"); } }
+            }
+        }
+    }
+}

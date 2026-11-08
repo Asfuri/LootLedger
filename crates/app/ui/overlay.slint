@@ -1,0 +1,40 @@
+// The pop-out counter: an ordinary always-on-top LootLedger window. It never attaches to or draws over the
+// game. Colours come from the main window's tokens through these properties.
+
+export component Overlay inherits Window {
+    title: "LootLedger counter";
+    default-font-family: "Segoe UI";
+    no-frame: true;
+    always-on-top: true;
+    in property <float> scale: 1;
+    in property <string> heading;
+    in property <string> count;
+    in property <string> lines;
+    in property <color> surface;
+    in property <color> ink;
+    in property <color> muted;
+    in property <color> accent;
+    in property <length> radius;
+    in property <length> pad;
+    callback drag();
+    width: 240px * scale;
+    height: content.preferred-height;
+    background: transparent;
+    Rectangle {
+        border-radius: radius;
+        background: surface;
+        content := VerticalLayout {
+            padding: pad;
+            spacing: pad / 4;
+            Text { text: heading; font-size: 13px * scale; color: muted; }
+            Text { text: count; font-size: 40px * scale; font-weight: 700; color: accent; }
+            if lines != "": Text { text: lines; font-size: 12px * scale; color: ink; wrap: word-wrap; }
+        }
+        TouchArea {
+            mouse-cursor: move;
+            pointer-event(event) => {
+                if event.kind == PointerEventKind.down && event.button == PointerEventButton.left { drag(); }
+            }
+        }
+    }
+}

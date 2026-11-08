@@ -3,6 +3,7 @@ pub mod bits;
 pub mod container;
 pub mod model;
 pub mod replay;
+pub mod stats;
 pub mod store;
 mod tables;
 pub mod tail;

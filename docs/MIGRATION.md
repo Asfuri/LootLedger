@@ -1,10 +1,10 @@
 # Rust migration status
 
 The working branch is `rust-port`. The Python v0.7.1 app, its build script and its
-release workflow remain the production path. No Rust release or data-format
-switch is authorized by a passing attribution-only test. The Rust app is labelled
-as a **read-only migration preview** and never opens the production database for
-writing. Its CLI only writes when explicitly given `import-jsonl --into PATH`.
+release workflow remain the production path until the Rust app is released.
+The Rust app now reads and writes the same ledger and settings files as 0.7.1, with
+no format change; both versions can be used on the same data. The first time it
+opens the ledger it saves a backup in `backupsefore-lootledger-0.8.0.sqlite`.
 
 ## Inspection and baseline
 
@@ -98,15 +98,15 @@ placeholder is treated as locked, even though the key field has length 32.
 | Area | Current state | Required before replacement |
 |---|---|---|
 | Replay decoder | **Parity passed** on 100 real replays (99 finished, 1 live): every opening, owner, teammate, name, placement, playlist and timestamp equal to the C# reader | Wire into the app's import path (Python still imports); re-run the gate after each Fortnite update |
-| Ledger | Core implementation, attribution/persisted-row golden checks and old app round trip | Broader crash/restore tests, full data-action UI |
-| Live | Incremental chunk index and event-driven watcher | Full state machine, decode/import handoff, overlay, real match validation |
-| Window | Native-window spike passes synthetic message checks at 96 DPI | Persistence, Snap/auto-hide/DPI/display checks, glyph and keyboard polish |
-| Overview/statistics | Synthetic chart and reorder spike; real total/last match | All cards, aggregates, filters, tooltips, keyboard dashboard editing, persisted layout |
-| Matches/openings/teammates | Read-only preview (latest 200 match/opening rows) | Full lazy models, filters, sort/detail/profile, corrections and export UI, audit display |
-| Settings | Temporary appearance toggles | Seed palette, system/contrast/density/type/motion/preferences, import/export settings |
-| Other UI | Not ported | Sessions, goals, trophies, compare, onboarding, command palette, notifications, PNG sharing, shortcuts |
-| Performance | Python baseline collected | Comparable full-parity size/RAM/CPU/startup/frame measurements |
-| Distribution | Python release path retained | Rust CI, static runtime import check, licenses, full parity and release approval |
+| Ledger | Read and write the shared SQLite v3 ledger; first Rust launch backs it up (`backups/before-lootledger-0.8.0.sqlite`); statistics match Python on all 36 compared fields of the real ledger | Broader crash/restore tests |
+| Live | Tracker port (idle, waiting, live, saving, ended), background import with the Rust decoder, match hand-over, chime, live chip in the title bar | A real match observed end to end |
+| Window | Frameless window: caption/resize hit testing, snap layouts, system menu, DWM corners, work-area maximize with auto-hide taskbar edge, logical geometry restore kept on screen, controls dim when inactive | Real-display checks: Snap, mixed DPI, auto-hide taskbar |
+| Overview/statistics | All 24 widgets with the 0.7.1 wording; add, remove, resize, drag with drop marker, move buttons, reset; count-up and draw-in animation (Full/Reduced/Off); themed tooltips | Physical drag and 60 fps on a real display |
+| Matches/openings/teammates | Filters, sortable virtualized tables, match detail (notes, tags, favourite, timeline, squad, MVP), corrections dialog, remove/restore, +1, undo, exports, teammates records, leaderboard and profile | Screen reader pass |
+| Settings | Every 0.7.1 option, plus "Show page title in title bar"; settings export/import in the 0.7.1 format | — |
+| Other UI | Command palette (Ctrl+K), shortcut list (? or F1), first-run checklist, What's new, trophy and goal messages, summary image (save or copy), pop-out counter (opacity, size, corner, click-through, teammates), global hotkeys | Hotkey conflicts on other PCs |
+| Performance | See PERF.md | Cold-cache first paint |
+| Distribution | Python release path retained | Rust release workflow and user approval |
 
 ## Developer checks
 

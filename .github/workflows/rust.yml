@@ -1,7 +1,9 @@
-name: Rust migration checks (not a release)
+name: Rust app checks (not a release)
 
 on:
   workflow_dispatch:
+  push:
+    branches: [rust-port]
   pull_request:
     paths:
       - 'Cargo.toml'
@@ -48,10 +50,13 @@ jobs:
         run: |
           python scripts/check_pe_runtime.py target/release/lootledger.exe --output target/pe-imports.json
           if ($LASTEXITCODE) { throw 'Unexpected runtime dependency' }
+      - name: Name the executable
+        shell: pwsh
+        run: Copy-Item target/release/lootledger.exe target/release/LootLedger.exe
       - uses: actions/upload-artifact@v4
         with:
-          name: Rust-migration-preview-NOT-parity-complete
+          name: LootLedger-rust-candidate
           path: |
-            target/release/lootledger.exe
+            target/release/LootLedger.exe
             target/pe-imports.json
             target/golden/ci-summary.json

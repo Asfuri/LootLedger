@@ -56,8 +56,8 @@ Every setting applies immediately and is saved to `%LOCALAPPDATA%\LootLedger\ui-
 
 ## Build from source
 
-The Rust/Slint rewrite is being developed separately on `rust-port`. It is a
-read-only migration preview; the Python app below remains the working release.
+The Rust/Slint rewrite is being developed on `rust-port`. It uses the same ledger
+and settings as the Python app below, which remains the released version for now.
 See [migration status and parity gates](docs/MIGRATION.md) and the
 [performance baseline](docs/PERF.md).
 

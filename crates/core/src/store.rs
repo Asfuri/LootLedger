@@ -198,6 +198,144 @@ impl Store {
             .collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
+    /// Replay files already read: name -> (size, mtime).
+    pub fn replay_files(&self) -> Result<std::collections::HashMap<String, (i64, f64)>> {
+        let mut stmt = self
+            .db
+            .prepare("SELECT file, size, mtime FROM replay_files")?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                (r.get::<_, i64>(1)?, r.get::<_, f64>(2)?),
+            ))
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Replay files whose match was read before per-player details existed.
+    pub fn files_without_players(&self) -> Result<std::collections::HashSet<String>> {
+        let mut stmt = self.db.prepare(
+            "SELECT r.file FROM replay_files r JOIN match_meta m ON m.match_id=r.match_id
+             WHERE r.status='imported' AND json_extract(m.meta,'$.players') IS NULL",
+        )?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Read every replay again on the next scan; imports are idempotent and keep corrections.
+    pub fn forget_replay_files(&mut self) -> Result<()> {
+        self.db.execute("DELETE FROM replay_files", [])?;
+        Ok(())
+    }
+
+    /// (replay files read, of which could not be read).
+    pub fn replay_file_counts(&self) -> Result<(i64, i64)> {
+        Ok(self.db.query_row(
+            "SELECT count(*), coalesce(sum(status='skipped'),0) FROM replay_files",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?)
+    }
+
+    /// The match a replay file was imported as, if any.
+    pub fn match_for_file(&self, file: &str) -> Result<Option<String>> {
+        Ok(self
+            .db
+            .query_row(
+                "SELECT match_id FROM replay_files WHERE file=?1 AND status='imported'",
+                params![file],
+                |r| r.get::<_, Option<String>>(0),
+            )
+            .optional()?
+            .flatten())
+    }
+
+    /// Counted openings in one match with a time inside the replay (for the timeline).
+    pub fn match_marks(
+        &self,
+        match_id: &str,
+        include_broken: bool,
+    ) -> Result<Vec<(f64, String, String)>> {
+        let mut stmt = self.db.prepare(
+            "SELECT video_time, chest_type, source FROM events WHERE match_id=?1 AND status='confirmed'
+             AND (?2 OR source!='replay-broken') AND video_time IS NOT NULL ORDER BY video_time",
+        )?;
+        let rows = stmt.query_map(params![match_id, include_broken], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Counted openings (confirmed, broken-open ones only when counted) for the statistics.
+    pub fn counted_events(&self, include_broken: bool) -> Result<Vec<crate::stats::Ev>> {
+        let mut stmt = self.db.prepare(
+            "SELECT created, amount, chest_type, source, match_id FROM events
+             WHERE status='confirmed' AND (?1 OR source!='replay-broken')",
+        )?;
+        let rows = stmt.query_map(params![include_broken], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+                r.get::<_, Option<String>>(4)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (created, amount, chest_type, source, match_id) = row?;
+            out.push(crate::stats::Ev {
+                when: local_time(&created)?,
+                amount,
+                chest_type,
+                source,
+                match_id,
+            });
+        }
+        Ok(out)
+    }
+
+    /// Everything the dashboard shows, computed from the ledger.
+    pub fn snapshot(
+        &self,
+        include_broken: bool,
+        session_start: Option<DateTime<Local>>,
+    ) -> Result<crate::stats::Snapshot> {
+        let events = self.counted_events(include_broken)?;
+        let matches = self
+            .history(include_broken, 0, u32::MAX)?
+            .into_iter()
+            .map(|m| {
+                Ok(crate::stats::MatchIn {
+                    started: local_time(&m.started)?,
+                    id: m.id,
+                    seconds: m.seconds,
+                    total: m.total,
+                    broken: m.broken,
+                    meta: m.meta,
+                    note: m.note,
+                    tags: m.tags,
+                    favorite: m.favorite,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(crate::stats::compute(
+            &events,
+            &matches,
+            Local::now(),
+            session_start,
+            include_broken,
+        ))
+    }
+
+    /// PRAGMA data_version plus our own changes: changes when anyone (this or the old app) writes.
+    pub fn version(&self) -> Result<(i64, u64)> {
+        Ok((
+            self.db.query_row("PRAGMA data_version", [], |r| r.get(0))?,
+            self.db.total_changes(),
+        ))
+    }
+
     pub fn history(&self, include_broken: bool, offset: u32, limit: u32) -> Result<Vec<Match>> {
         let mut stmt = self.db.prepare("SELECT m.id,m.started,m.ended,m.seconds,
             coalesce(sum(CASE WHEN e.status='confirmed' AND (?1 OR e.source!='replay-broken') THEN e.amount ELSE 0 END),0),
@@ -673,6 +811,73 @@ fn iso(time: DateTime<Utc>) -> String {
         },
         false,
     )
+}
+
+/// A stored ISO 8601 timestamp in local time. A naive one is local time, as Python's astimezone() reads it.
+pub fn local_time(text: &str) -> Result<DateTime<Local>> {
+    if let Ok(t) = DateTime::parse_from_rfc3339(text) {
+        return Ok(t.with_timezone(&Local));
+    }
+    NaiveDateTime::parse_from_str(text, "%Y-%m-%dT%H:%M:%S%.f")
+        .ok()
+        .and_then(|t| Local.from_local_datetime(&t).earliest())
+        .ok_or_else(|| Error::Invalid(format!("Unreadable timestamp: {text}")))
+}
+
+/// Write rows as CSV (by file extension) or JSON, atomically. Formula-like text is neutralized in CSV.
+pub fn export_rows(
+    path: &Path,
+    rows: &[serde_json::Map<String, Value>],
+    fields: &[&str],
+) -> Result<()> {
+    let csv = path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("csv"));
+    let temp = path.with_extension(format!("{}.tmp", Uuid::new_v4()));
+    let result = (|| -> Result<()> {
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp)?;
+        if csv {
+            file.write_all(&[0xef, 0xbb, 0xbf])?;
+            let mut writer = csv::Writer::from_writer(&mut file);
+            writer.write_record(fields)?;
+            for row in rows {
+                writer.write_record(fields.iter().map(|key| {
+                    match row.get(*key).unwrap_or(&Value::Null) {
+                        Value::Null => String::new(),
+                        Value::String(s) if s.starts_with(['=', '+', '-', '@']) => format!("'{s}"),
+                        Value::String(s) => s.clone(),
+                        Value::Bool(b) => {
+                            if *b {
+                                "True".into()
+                            } else {
+                                "False".into()
+                            }
+                        }
+                        other => other.to_string(),
+                    }
+                }))?;
+            }
+            writer.flush()?;
+        } else {
+            let payload = json!({"schema": 3, "exported": now(), "rows": rows});
+            file.write_all(serde_json::to_string_pretty(&payload)?.as_bytes())?;
+        }
+        file.sync_all()?;
+        Ok(())
+    })();
+    match result {
+        Ok(()) => {
+            fs::rename(&temp, path)?;
+            Ok(())
+        }
+        Err(e) => {
+            let _ = fs::remove_file(&temp);
+            Err(e)
+        }
+    }
 }
 
 #[cfg(test)]

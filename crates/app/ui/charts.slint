@@ -1,0 +1,378 @@
+// Charts drawn with Path primitives and rectangles. Shapes come precomputed from Rust in a 0..100 view box;
+// `reveal` (0..1) animates them in after new data arrives, driven by a short Rust timer (no idle timers).
+import { Tokens, Tip } from "tokens.slint";
+import { BarRow, ChartPoint, Slice, HeatCell, RingData, Mark } from "types.slint";
+import { Icon } from "controls.slint";
+
+export global Anim {
+    in property <float> reveal: 1;
+}
+
+component HoverTip inherits TouchArea {
+    in property <string> tip;
+    property <bool> showing: self.has-hover && tip != "";
+    changed showing => {
+        if showing {
+            Tip.text = tip;
+            Tip.x = self.absolute-position.x + self.width / 2;
+            Tip.y = self.absolute-position.y;
+            Tip.above = true;
+        } else if Tip.text == tip {
+            Tip.text = "";
+        }
+    }
+}
+
+export component Sparkline inherits Rectangle {
+    in property <string> line;
+    in property <string> area;
+    in property <[string]> tips;
+    in property <color> ink: Tokens.primary;
+    property <int> hovered: touch.has-hover && tips.length > 0 ? clamp(round(touch.mouse-x / max(1px, self.width) * (tips.length - 1)), 0, tips.length - 1) : -1;
+    height: 36px;
+    clip: true;
+    Rectangle {
+        x: 0;
+        width: parent.width * Anim.reveal;
+        clip: true;
+        Path {
+            x: 0;
+            width: root.width;
+            commands: area;
+            viewbox-width: 100;
+            viewbox-height: 100;
+            fit: fill;
+            fill: ink.with-alpha(0.16);
+            stroke-width: 0px;
+        }
+        Path {
+            x: 0;
+            width: root.width;
+            commands: line;
+            viewbox-width: 100;
+            viewbox-height: 100;
+            fit: fill;
+            fill: transparent;
+            stroke: ink;
+            stroke-width: 2px;
+            stroke-line-cap: round;
+        }
+    }
+    if hovered >= 0: Rectangle {
+        x: hovered / max(1, tips.length - 1) * (parent.width - 2px);
+        width: 2px;
+        background: ink.with-alpha(0.5);
+    }
+    changed hovered => {
+        if hovered >= 0 {
+            Tip.text = tips[hovered];
+            Tip.x = touch.absolute-position.x + touch.mouse-x;
+            Tip.y = touch.absolute-position.y;
+            Tip.above = true;
+        } else {
+            Tip.text = "";
+        }
+    }
+    touch := TouchArea { }
+}
+
+// Bars, lines, a smooth line or an area, with x-axis labels that never overlap (Rust picks them).
+export component SeriesChart inherits Rectangle {
+    in property <[ChartPoint]> points;
+    in property <[string]> axis;
+    in property <string> line;
+    in property <string> area;
+    in property <int> style; // 0 bar, 1 line, 2 smooth, 3 area
+    in property <string> empty;
+    property <int> hovered: touch.has-hover && points.length > 0 ? clamp(floor(touch.mouse-x / max(1px, plot.width) * points.length), 0, points.length - 1) : -1;
+    min-height: 180px;
+    vertical-stretch: 1;
+    accessible-role: image;
+    accessible-label: empty;
+    changed hovered => {
+        if hovered >= 0 {
+            Tip.text = points[hovered].tip;
+            Tip.x = touch.absolute-position.x + (hovered + 0.5) * touch.width / points.length;
+            Tip.y = touch.absolute-position.y + touch.height * (1 - points[hovered].value);
+            Tip.above = true;
+        } else {
+            Tip.text = "";
+        }
+    }
+    VerticalLayout {
+        spacing: Tokens.xs;
+        plot := Rectangle {
+            vertical-stretch: 1;
+            for y in [0.25, 0.5, 0.75]: Rectangle {
+                y: parent.height * y;
+                height: 1px;
+                background: Tokens.outline-variant.with-alpha(0.5);
+            }
+            if style == 0: Rectangle {
+                for p[i] in points: Rectangle {
+                    property <length> slot: parent.width / max(1, points.length);
+                    x: slot * i + slot * 0.15;
+                    width: max(1px, slot * 0.7);
+                    height: max(p.value > 0 ? 3px : 0px, parent.height * p.value * Anim.reveal);
+                    y: parent.height - self.height;
+                    border-top-left-radius: min(self.width / 2, Tokens.r-xs);
+                    border-top-right-radius: min(self.width / 2, Tokens.r-xs);
+                    background: i == hovered ? Tokens.primary.mix(Tokens.on-surface, 0.8) : Tokens.primary;
+                }
+            }
+            if style != 0: Rectangle {
+                x: 0;
+                width: parent.width * Anim.reveal;
+                clip: true;
+                if style == 3: Path {
+                    x: 0;
+                    width: plot.width;
+                    commands: area;
+                    viewbox-width: 100;
+                    viewbox-height: 100;
+                    fit: fill;
+                    fill: Tokens.primary.with-alpha(0.22);
+                    stroke-width: 0px;
+                }
+                Path {
+                    x: 0;
+                    width: plot.width;
+                    commands: line;
+                    viewbox-width: 100;
+                    viewbox-height: 100;
+                    fit: fill;
+                    fill: transparent;
+                    stroke: Tokens.primary;
+                    stroke-width: 2.5px;
+                    stroke-line-cap: round;
+                    stroke-line-join: round;
+                }
+            }
+            if hovered >= 0 && style != 0: Rectangle {
+                x: (hovered + 0.5) * parent.width / max(1, points.length) - 1px;
+                width: 2px;
+                background: Tokens.on-surface-variant.with-alpha(0.4);
+            }
+            if points.length == 0 || empty != "": Text {
+                text: empty;
+                color: Tokens.on-surface-variant;
+                font-size: Tokens.body;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+            touch := TouchArea { }
+        }
+        HorizontalLayout {
+            height: 16px;
+            for label[i] in axis: Text {
+                text: label;
+                color: Tokens.on-surface-variant;
+                font-size: Tokens.label;
+                horizontal-alignment: i == 0 ? left : i == axis.length - 1 ? right : center;
+                overflow: elide;
+            }
+        }
+    }
+}
+
+export component Donut inherits Rectangle {
+    in property <[Slice]> slices;
+    in property <string> center-text;
+    in property <string> caption;
+    property <float> angle: touch.has-hover ? mod(atan2((touch.mouse-y - self.height / 2) / 1px, (touch.mouse-x - self.width / 2) / 1px) / 1turn + 1.25, 1) : -1;
+    property <bool> inside: touch.has-hover && sqrt(pow((touch.mouse-x - self.width / 2) / 1px, 2) + pow((touch.mouse-y - self.height / 2) / 1px, 2)) > self.width / 1px * 0.3;
+    width: 168px;
+    height: 168px;
+    accessible-role: image;
+    accessible-label: center-text + " " + caption;
+    Path {
+        commands: "M 50 6 A 44 44 0 1 1 49.99 6";
+        viewbox-width: 100;
+        viewbox-height: 100;
+        stroke: Tokens.container-highest;
+        stroke-width: 20px;
+        fill: transparent;
+    }
+    for s[i] in slices: Path {
+        property <bool> hovered: inside && angle >= s.start && angle < s.start + s.sweep;
+        commands: s.path;
+        viewbox-width: 100;
+        viewbox-height: 100;
+        stroke: s.color;
+        stroke-width: hovered ? 24px : 20px;
+        fill: transparent;
+        opacity: Anim.reveal;
+        changed hovered => {
+            if hovered {
+                Tip.text = s.tip;
+                Tip.x = root.absolute-position.x + touch.mouse-x;
+                Tip.y = root.absolute-position.y + touch.mouse-y;
+                Tip.above = true;
+            } else if Tip.text == s.tip {
+                Tip.text = "";
+            }
+        }
+    }
+    VerticalLayout {
+        alignment: center;
+        Text { text: center-text; font-size: Tokens.title + 4px; font-weight: 600; color: Tokens.on-surface; horizontal-alignment: center; }
+        Text { text: caption; font-size: Tokens.label; color: Tokens.on-surface-variant; horizontal-alignment: center; }
+    }
+    touch := TouchArea { }
+}
+
+export component Ring inherits Rectangle {
+    in property <RingData> data;
+    width: 132px;
+    height: 132px;
+    accessible-role: progress-indicator;
+    accessible-label: data.caption;
+    accessible-value: data.text;
+    Path {
+        commands: "M 50 8 A 42 42 0 1 1 49.99 8";
+        viewbox-width: 100;
+        viewbox-height: 100;
+        stroke: Tokens.container-highest;
+        stroke-width: 10px;
+        fill: transparent;
+    }
+    if data.share > 0: Path {
+        commands: data.path;
+        viewbox-width: 100;
+        viewbox-height: 100;
+        stroke: data.share >= 1 ? Tokens.tertiary : Tokens.primary;
+        stroke-width: 10px;
+        stroke-line-cap: round;
+        fill: transparent;
+        opacity: Anim.reveal;
+    }
+    VerticalLayout {
+        alignment: center;
+        Text { text: data.text; font-size: Tokens.title; font-weight: 600; color: Tokens.on-surface; horizontal-alignment: center; }
+        Text { text: data.caption; font-size: Tokens.label; color: Tokens.on-surface-variant; horizontal-alignment: center; wrap: word-wrap; }
+    }
+}
+
+export component Heatmap inherits Rectangle {
+    in property <[HeatCell]> cells; // 7 days x 24 hours, Monday first
+    property <length> label-w: 36px;
+    property <length> cell-w: (self.width - label-w) / 24;
+    property <length> cell-h: max(12px, min(26px, cell-w));
+    min-height: cell-h * 7 + 40px;
+    accessible-role: image;
+    accessible-label: "Chests by weekday and hour";
+    for day[d] in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]: Text {
+        x: 0;
+        y: d * cell-h;
+        height: cell-h;
+        text: day;
+        font-size: Tokens.label;
+        color: Tokens.on-surface-variant;
+        vertical-alignment: center;
+    }
+    for c[i] in cells: Rectangle {
+        x: label-w + mod(i, 24) * cell-w + 1px;
+        y: floor(i / 24) * cell-h + 1px;
+        width: cell-w - 2px;
+        height: cell-h - 2px;
+        border-radius: Tokens.r-xs;
+        background: c.alpha > 0 ? Tokens.primary.with-alpha(0.15 + 0.85 * c.alpha * Anim.reveal) : Tokens.container-highest;
+        HoverTip { tip: c.tip; }
+    }
+    for h in [0, 6, 12, 18, 23]: Text {
+        x: label-w + h * cell-w;
+        y: cell-h * 7 + 4px;
+        text: h == 23 ? "23h" : h + "h";
+        font-size: Tokens.label;
+        color: Tokens.on-surface-variant;
+    }
+    HorizontalLayout {
+        x: parent.width - 180px;
+        y: cell-h * 7 + 22px;
+        width: 180px;
+        height: 14px;
+        spacing: Tokens.xs;
+        Text { text: "Fewer"; font-size: Tokens.label; color: Tokens.on-surface-variant; }
+        for a in [0.0, 0.25, 0.5, 0.75, 1.0]: Rectangle {
+            width: 14px;
+            border-radius: Tokens.r-xs;
+            background: a == 0 ? Tokens.container-highest : Tokens.primary.with-alpha(0.15 + 0.85 * a);
+        }
+        Text { text: "More"; font-size: Tokens.label; color: Tokens.on-surface-variant; }
+    }
+}
+
+export component BarRows inherits VerticalLayout {
+    in property <[BarRow]> rows;
+    spacing: Tokens.s;
+    for r in rows: HorizontalLayout {
+        spacing: Tokens.s;
+        Text {
+            text: r.label;
+            width: 34%;
+            font-size: Tokens.body;
+            color: Tokens.on-surface;
+            overflow: elide;
+            vertical-alignment: center;
+        }
+        Rectangle {
+            horizontal-stretch: 1;
+            height: 10px;
+            y: (parent.height - self.height) / 2;
+            border-radius: Tokens.pill(10px);
+            background: Tokens.container-highest;
+            Rectangle {
+                x: 0;
+                width: max(r.fraction > 0 ? 4px : 0px, parent.width * r.fraction * Anim.reveal);
+                border-radius: parent.border-radius;
+                background: r.has-color ? r.color : Tokens.primary;
+            }
+        }
+        Text {
+            text: r.text;
+            min-width: 64px;
+            font-size: Tokens.label;
+            color: Tokens.on-surface-variant;
+            vertical-alignment: center;
+            horizontal-alignment: right;
+        }
+    }
+}
+
+export component Timeline inherits Rectangle {
+    in property <[Mark]> marks;
+    in property <float> saved: -1;
+    in property <string> end;
+    in property <color> ink: Tokens.on-primary-container;
+    height: 56px;
+    Rectangle { y: 30px; height: 1px; background: ink.with-alpha(0.4); }
+    if saved >= 0: Rectangle {
+        x: 0;
+        y: 28px;
+        width: parent.width * saved;
+        height: 5px;
+        border-radius: Tokens.pill(4px);
+        background: ink.with-alpha(0.55);
+    }
+    for m in marks: Rectangle {
+        x: m.x * (parent.width - 3px);
+        y: 0;
+        width: 3px;
+        height: 30px;
+        border-radius: Tokens.r-xs / 4;
+        background: m.color;
+        HoverTip { tip: m.tip; }
+    }
+    Text { x: 0; y: 38px; text: "0:00"; font-size: Tokens.label; color: ink; }
+    Text { x: parent.width - self.width; y: 38px; text: end; font-size: Tokens.label; color: ink; }
+}
+
+export component Pulse inherits Rectangle {
+    in property <color> ink;
+    in property <bool> pulsing;
+    width: 12px;
+    height: 12px;
+    border-radius: Tokens.pill(12px);
+    background: ink;
+    opacity: pulsing && Tokens.full-motion ? 0.45 + 0.55 * abs(sin(animation-tick() / 1100ms * 180deg)) : 1;
+}

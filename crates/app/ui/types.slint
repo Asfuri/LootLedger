@@ -1,0 +1,67 @@
+// Data passed from Rust to the UI. Text is already formatted with the user's number and date settings.
+
+export struct Cell { text: string, tone: int } // tone: 0 muted, 1 value, 2 primary, 3 heading, 4 normal
+export struct TableRow { cells: [Cell], dot: color, has-dot: bool }
+export struct BarRow { label: string, fraction: float, text: string, color: color, has-color: bool }
+export struct ChartPoint { label: string, value: float, tip: string }
+export struct Slice { start: float, sweep: float, color: color, tip: string, path: string }
+export struct HeatCell { alpha: float, tip: string }
+export struct Check { ok: bool, title: string, fix: string }
+export struct RingData { share: float, text: string, caption: string, path: string }
+export struct Trophy { title: string, detail: string, unlocked: bool }
+export struct Mark { x: float, color: color, tip: string }
+
+export struct CardData {
+    id: string,
+    kind: string,
+    title: string,
+    icon: string,
+    span: int,
+    accent: bool,
+    // Stat tiles and sessions
+    value: string,
+    detail: string,
+    delta: string,
+    delta-tone: int,
+    spark-line: string,
+    spark-area: string,
+    spark-tips: [string],
+    // Text lines and tables
+    lines: [Cell],
+    note: string,
+    bars: [BarRow],
+    table: [TableRow],
+    // Trend chart
+    points: [ChartPoint],
+    axis: [string],
+    line: string,
+    area: string,
+    empty: string,
+    range-index: int,
+    grain-index: int,
+    style-index: int,
+    // Donut
+    slices: [Slice],
+    center: string,
+    caption: string,
+    // Heatmap, health, goals, trophies, compare
+    heat: [HeatCell],
+    checks: [Check],
+    rings: [RingData],
+    trophies: [Trophy],
+    dates: [string],
+    // Live match
+    live-dot: color,
+    live-pulse: bool,
+    pop: string,
+    pop-color: color,
+    pop-id: int,
+    marks: [Mark],
+    saved: float,
+    show-timeline: bool,
+    timeline-end: string,
+}
+
+export struct DashRow { cards: [CardData], free: int, first: int }
+
+export struct PageInfo { title: string, icon: string }

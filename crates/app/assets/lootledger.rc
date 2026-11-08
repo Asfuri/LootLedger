@@ -1,0 +1,28 @@
+#include <winver.h>
+1 ICON "lootledger.ico"
+1 24 "lootledger.manifest"
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION 0,8,0,0
+PRODUCTVERSION 0,8,0,0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "CompanyName", "LootLedger"
+      VALUE "FileDescription", "LootLedger"
+      VALUE "FileVersion", "0.8.0"
+      VALUE "InternalName", "LootLedger"
+      VALUE "LegalCopyright", "MIT License"
+      VALUE "OriginalFilename", "LootLedger.exe"
+      VALUE "ProductName", "LootLedger"
+      VALUE "ProductVersion", "0.8.0"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END
