@@ -2,8 +2,8 @@
 1 ICON "lootledger.ico"
 1 24 "lootledger.manifest"
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION 0,8,3,0
-PRODUCTVERSION 0,8,3,0
+FILEVERSION 0,8,4,0
+PRODUCTVERSION 0,8,4,0
 FILEOS VOS_NT_WINDOWS32
 FILETYPE VFT_APP
 BEGIN
@@ -13,12 +13,12 @@ BEGIN
     BEGIN
       VALUE "CompanyName", "LootLedger"
       VALUE "FileDescription", "LootLedger"
-      VALUE "FileVersion", "0.8.3"
+      VALUE "FileVersion", "0.8.4"
       VALUE "InternalName", "LootLedger"
       VALUE "LegalCopyright", "MIT License"
       VALUE "OriginalFilename", "LootLedger.exe"
       VALUE "ProductName", "LootLedger"
-      VALUE "ProductVersion", "0.8.3"
+      VALUE "ProductVersion", "0.8.4"
     END
   END
   BLOCK "VarFileInfo"

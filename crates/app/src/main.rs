@@ -36,7 +36,9 @@ struct App {
     store: Option<Store>,
     store_error: Option<String>,
     snap: Option<lootledger_core::stats::Snapshot>,
-    snap_key: Option<((i64, u64), bool, NaiveDate)>,
+    snap_key: Option<StatsKey>,
+    /// The statistics the cards were last built from: switching pages skips the rebuild when unchanged.
+    cards_key: Option<StatsKey>,
     session_start: DateTime<Local>,
     tracker: live::Tracker,
     live_replay: Option<Replay>,
@@ -58,6 +60,9 @@ struct App {
     theme_dirty: bool,
     hotkeys_busy: Vec<String>,
 }
+
+/// What the statistics depend on: the ledger version, whether broken-open chests count, and today's date.
+type StatsKey = ((i64, u64), bool, NaiveDate);
 
 /// A stat value counting up after new data: (grid, row, column, from, to, decimals).
 struct CountUp {
@@ -129,6 +134,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         store_error,
         snap: None,
         snap_key: None,
+        cards_key: None,
         session_start: Local::now(),
         tracker: live::Tracker::new(config::fortnite_log()),
         live_replay: None,
@@ -1029,15 +1035,21 @@ fn health(app: &App) -> cards::Health {
 
 // ---- Dashboard -----------------------------------------------------------------------------------
 
+fn stats_key(app: &App) -> Option<StatsKey> {
+    Some((
+        app.store.as_ref()?.version().unwrap_or((0, 0)),
+        app.config.count_broken(),
+        Local::now().date_naive(),
+    ))
+}
+
 fn snapshot(app: &mut App, force: bool) -> bool {
+    let Some(key) = stats_key(app) else {
+        return false;
+    };
     let Some(store) = app.store.as_ref() else {
         return false;
     };
-    let key = (
-        store.version().unwrap_or((0, 0)),
-        app.config.count_broken(),
-        Local::now().date_naive(),
-    );
     if !force && app.snap_key == Some(key) && app.snap.is_some() {
         return false;
     }
@@ -1178,6 +1190,7 @@ fn refresh(force: bool) {
         announce();
     }
     ui.set_missing_widgets(cards::model(missing));
+    with_app(|a| a.cards_key = a.snap_key);
     refresh_status();
     refresh_overlay();
     if changed {
@@ -1549,7 +1562,11 @@ fn wire(ui: &AppWindow) {
         }
     });
     ui.on_navigate(|page| {
-        if page == 0 || page == 3 {
+        // Every change rebuilds the cards when it happens; a page switch only catches up on what changed since.
+        let stale =
+            with_app(|a| a.theme_dirty || a.cards_key.is_none() || a.cards_key != stats_key(a))
+                .unwrap_or(true);
+        if (page == 0 || page == 3) && stale {
             refresh(false);
         }
     });
@@ -1954,8 +1971,8 @@ const PAGE_NAMES: [&str; 6] = [
     "Settings",
 ];
 const WHATS_NEW: [&str; 3] = [
-    "Pop-up after each match: your chests, placement and how the match compares, in the corner for a few seconds. It never takes focus from the game. Turn it off in Settings → Live match and counter.",
-    "A smaller app: 12.9 MB instead of 16.5 MB, so downloads and updates are faster.",
+    "Faster first launch: replays are now read on several cores at once.",
+    "Snappier page switching: Overview and Statistics only rebuild when something changed.",
     "Your data still never leaves this PC; only the version check and the download go over the internet.",
 ];
 

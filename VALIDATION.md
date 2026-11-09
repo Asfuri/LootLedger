@@ -19,7 +19,17 @@ What has been checked, and what has not. Earlier history (the Python app and the
   - a style guard keeping colours, radii and spacing in the design tokens.
 - **Screens:** every page, in dark and light, was rendered off-screen with real data and reviewed. So were the What's new dialog, the Match stats card and the summary and weekly-recap images.
 - **Updates:** a live test fetched the latest release from GitHub, downloaded it and verified it against the published SHA-256.
-- **Live files:** while Fortnite records, the replay header has a 32-byte all-zero key placeholder, and the key appears when the match ends. LootLedger treats such a file as locked and never tries to decode it.
+- **Live files:** while Fortnite records, the replay header has a 32-byte all-zero key placeholder, and the key appears when the match ends. LootLedger treats such a file as locked and never tries to decode it. Rechecked on a real match in progress (2026-11-09):
+  - The data chunks are encrypted.
+  - The only plain-text events are eliminations (`playerElim`), a timecode and an add-on record. Match stats and the key are written only at the end.
+  - Fortnite's log has no line per chest opening either.
+
+  So chests can only be counted once the match ends.
+- **Parallel import (0.8.4):** the first scan decodes replays on half the cores (at most 6) and imports them on one connection. A unit test checks that 23 files are each imported once, that progress reaches 23/23 and that a second scan finds nothing.
+  - **Timing:** with Fortnite in a match, 99 replays took 134 s on one thread and 91 s on six. Those numbers were noisy because the game was using the CPU. Timing with Fortnite closed is still to do.
+  - **Memory:** one decode peaks at about 36 MB.
+- **Page switching (0.8.4):** switching to Overview or Statistics rebuilds the cards only when the statistics, the date or the theme changed since the last build. Every change already rebuilds them when it happens.
+  - **Statistics cost:** computing them takes about 45 ms on the real ledger (158 matches) when the CPU is free, so a stats cache between launches wasn't worth adding.
 - **Runtime:** the release exe imports only Windows system DLLs (no dynamic CRT, Python, Qt, .NET or WebView).
 - **Taskbar icon (0.8.2):** an off-screen window reported both a large and a small icon through WM_GETICON.
 - **Match pop-up (0.8.3):**

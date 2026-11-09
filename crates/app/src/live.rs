@@ -223,34 +223,53 @@ pub fn scan(
         todo.push((path, name, meta.len(), mtime));
     }
     let total = todo.len();
-    for (done, (path, name, size, mtime)) in todo.into_iter().enumerate() {
-        let data = match std::fs::read(&path) {
-            Ok(d) => d,
-            Err(e) => {
-                return ScanResult {
-                    live,
-                    error: Some(format!("{}: {e}", path.display())),
-                };
-            }
-        };
-        let result = replay::decode(&path.to_string_lossy(), &data);
-        drop(data);
-        if result.live && now - mtime < LIVE_WINDOW {
-            live = Some(result);
-            continue;
+    // Decoding is the slow part (about 1 s per replay), so a few threads read and decode while this one
+    // imports through its single connection. Half the cores at most: Fortnite may be running.
+    let workers = std::thread::available_parallelism()
+        .map_or(1, |n| (n.get() / 2).clamp(1, 6))
+        .min(total.max(1));
+    let queue = std::sync::Mutex::new(todo.into_iter());
+    let (sender, receiver) = std::sync::mpsc::sync_channel(workers);
+    let mut error = None;
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            let sender = sender.clone();
+            let queue = &queue;
+            scope.spawn(move || {
+                while let Some((path, name, size, mtime)) =
+                    queue.lock().ok().and_then(|mut q| q.next())
+                {
+                    let result = std::fs::read(&path)
+                        .map(|data| replay::decode(&path.to_string_lossy(), &data))
+                        .map_err(|e| format!("{}: {e}", path.display()));
+                    if sender.send((result, name, size, mtime)).is_err() {
+                        break; // the import stopped on an error
+                    }
+                }
+            });
         }
-        match store.import_replay(&result, &name, size, mtime) {
-            Ok(_) => {}
-            Err(e) => {
-                return ScanResult {
-                    live,
-                    error: Some(format!("{name}: {e}")),
-                };
+        drop(sender);
+        let receiver = receiver; // dropped on an early stop, which releases any worker waiting to send
+        for (done, (result, name, size, mtime)) in receiver.iter().enumerate() {
+            let result = match result {
+                Ok(r) => r,
+                Err(e) => {
+                    error = Some(e);
+                    break;
+                }
+            };
+            if result.live && now - mtime < LIVE_WINDOW {
+                live = Some(result);
+                continue;
             }
+            if let Err(e) = store.import_replay(&result, &name, size, mtime) {
+                error = Some(format!("{name}: {e}"));
+                break;
+            }
+            progress(done + 1, total);
         }
-        progress(done + 1, total);
-    }
-    ScanResult { live, error: None }
+    });
+    ScanResult { live, error }
 }
 
 /// A short two-note chime at this volume (0–100), written once per volume and played without blocking.
@@ -317,5 +336,36 @@ impl WideNull for std::ffi::OsStr {
     fn encode_wide_null(&self) -> Vec<u16> {
         use std::os::windows::ffi::OsStrExt;
         self.encode_wide().chain(std::iter::once(0)).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scan_reads_every_file_once_on_several_threads() {
+        let dir = std::env::temp_dir().join(format!("lootledger-scan-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for i in 0..23 {
+            std::fs::write(
+                dir.join(format!("UnsavedReplay-{i:02}.replay")),
+                [i as u8; 64],
+            )
+            .unwrap();
+        }
+        let mut store = Store::open(dir.join("ledger.sqlite")).unwrap();
+        let mut seen = Vec::new();
+        let result = scan(&mut store, &dir, |done, total| seen.push((done, total)));
+        assert!(result.error.is_none(), "{:?}", result.error);
+        assert_eq!(seen.last(), Some(&(23, 23)));
+        assert_eq!(store.replay_files().unwrap().len(), 23);
+        // A second scan finds nothing new.
+        let mut again = 0;
+        scan(&mut store, &dir, |_, _| again += 1);
+        assert_eq!(again, 0);
+        drop(store);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
