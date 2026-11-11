@@ -168,6 +168,43 @@ export component CardView inherits Rectangle {
                 }
             }
         }
+        // ---- Token drop chance
+        if card.kind == "token": VerticalLayout {
+            spacing: Tokens.s;
+            vertical-stretch: 1;
+            HorizontalLayout {
+                spacing: Tokens.m;
+                alignment: start;
+                Text { text: card.value; font-size: Tokens.display; font-weight: 600; color: ink; }
+                if card.detail != "": Text {
+                    text: card.detail;
+                    font-size: Tokens.body;
+                    color: muted;
+                    wrap: word-wrap;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+            }
+            SeriesChart {
+                points: card.points;
+                axis: card.axis;
+                line: card.line;
+                area: card.area;
+                style: card.style-index;
+                empty: card.empty;
+            }
+            HorizontalLayout {
+                spacing: Tokens.s;
+                Text { text: card.caption; color: Tokens.on-surface-variant; font-size: Tokens.body; vertical-alignment: center; horizontal-stretch: 1; wrap: word-wrap; }
+                Segmented {
+                    options: Dash.style-names;
+                    current: card.style-index;
+                    label: "Chart style";
+                    changed(i) => { Dash.chart-style(i); }
+                }
+            }
+            if card.note != "": SectionText { text: card.note; }
+        }
         // ---- Chest types: donut and table
         if card.kind == "types": VerticalLayout {
             spacing: Tokens.s;

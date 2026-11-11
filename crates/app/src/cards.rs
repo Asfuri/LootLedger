@@ -55,10 +55,12 @@ pub const STAT_TITLES: &[(&str, &str, &str)] = &[
     ("playtime", "Time played", "timer"),
     ("matches", "Matches read", "list_alt"),
     ("session", "This session", "play_circle"),
+    ("token", "Token chance", "military_tech"),
 ];
 pub const TITLES: &[(&str, &str, &str)] = &[
     ("live", "Current match", "sports_esports"),
     ("trend", "Chests over time", "trending_up"),
+    ("token", "Token drop chance", "military_tech"),
     ("types", "By chest type", "category"),
     ("modes", "By game mode", "tune"),
     ("heat", "When you open chests", "grid_on"),
@@ -75,6 +77,7 @@ pub const TITLES: &[(&str, &str, &str)] = &[
 pub const STATS_ORDER: &[&str] = &[
     "health",
     "trend",
+    "token",
     "types",
     "modes",
     "heat",
@@ -97,6 +100,7 @@ pub const STATS_ORDER: &[&str] = &[
     "stat:playtime",
     "stat:matches",
     "stat:session",
+    "stat:token",
 ];
 
 pub fn title_of(id: &str) -> (&'static str, &'static str) {
@@ -457,6 +461,44 @@ pub fn stat_value(key: &str, ctx: &Context) -> StatValue {
                 tips,
             )
         }
+        "token" => {
+            let summary = stats::token_summary(snap);
+            let val_text = if summary.prob_squad >= 0.01 {
+                format!("{:.1}%", summary.prob_squad * 100.0)
+            } else if summary.prob_squad > 0.0 {
+                format!("{:.2}%", summary.prob_squad * 100.0)
+            } else {
+                "0.0%".into()
+            };
+            let detail = if summary.total_chests_squad > 0 {
+                format!(
+                    "Squad: {} · You: {}",
+                    p.int(summary.total_chests_squad),
+                    p.int(summary.total_chests_me)
+                )
+            } else {
+                "No chests opened yet".into()
+            };
+            let spark_vals: Vec<f64> = summary.recent_cum_probs.clone();
+            let tips: Vec<SharedString> = summary
+                .days
+                .iter()
+                .rev()
+                .take(spark_vals.len())
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .map(|d| {
+                    s(format!(
+                        "{} · {:.2}% ({} chests)",
+                        p.short_date(d.date),
+                        d.cum_prob_squad * 100.0,
+                        p.int(d.cum_chests_squad)
+                    ))
+                })
+                .collect();
+            (Value::Text(val_text), detail, None, spark_vals, tips)
+        }
         _ => (Value::Text("–".into()), String::new(), None, vec![], vec![]),
     }
 }
@@ -707,6 +749,139 @@ fn trend_card(span: i32, ctx: &Context) -> CardData {
     });
     card.points = model(chart);
     card.caption = s(format!("{} chests in this range", p.int(total)));
+    card
+}
+
+fn token_card(span: i32, ctx: &Context) -> CardData {
+    let mut card = blank("token", "token", span, ctx);
+    let (snap, p) = (ctx.snap, ctx.prefs);
+    card.style_index = ["bar", "line", "smooth", "area"]
+        .iter()
+        .position(|x| *x == p.chart_style)
+        .unwrap_or(0) as i32;
+
+    let summary = stats::token_summary(snap);
+
+    let format_pct = |prob: f64| {
+        if prob >= 0.01 {
+            format!("{:.1}%", prob * 100.0)
+        } else if prob > 0.0 {
+            format!("{:.2}%", prob * 100.0)
+        } else {
+            "0.0%".into()
+        }
+    };
+
+    card.value = s(format_pct(summary.prob_squad));
+
+    if summary.total_chests_squad > 0 {
+        card.detail = s(format!(
+            "Squad: {} ({} chests) · You: {} ({} chests)",
+            format_pct(summary.prob_squad),
+            p.int(summary.total_chests_squad),
+            format_pct(summary.prob_me),
+            p.int(summary.total_chests_me)
+        ));
+    } else {
+        card.detail = s("Open chests in Battle Royale to track token odds");
+    }
+
+    if summary.days.is_empty() {
+        card.empty = s("No matches read yet");
+        card.caption =
+            s("Play Battle Royale matches to track your squad's chance of finding the token");
+        card.note =
+            s("Odds: 1 in 137,500 per chest. Saturdays Treasure Hours: 1 in 91,667 (1.5× boost).");
+        return card;
+    }
+
+    let peak = summary
+        .days
+        .iter()
+        .map(|d| d.cum_prob_squad * 100.0)
+        .fold(0.0f64, f64::max)
+        .max(1e-6);
+
+    let chart: Vec<ChartPoint> = summary
+        .days
+        .iter()
+        .map(|d| {
+            let label = p.short_date(d.date);
+            let mut tip = format!(
+                "{} · {:.2}% chance\nSquad: {} chests (+{} today)\nYou: {} chests (+{} today)",
+                label,
+                d.cum_prob_squad * 100.0,
+                p.int(d.cum_chests_squad),
+                p.int(d.chests_squad),
+                p.int(d.cum_chests_me),
+                p.int(d.chests_me),
+            );
+            if d.had_treasure_hour {
+                tip += "\n⚡ Includes Treasure Hour (boosted odds!)";
+            }
+            ChartPoint {
+                label: s(label),
+                value: ((d.cum_prob_squad * 100.0) / peak) as f32,
+                tip: s(tip),
+            }
+        })
+        .collect();
+
+    let values: Vec<f64> = summary
+        .days
+        .iter()
+        .map(|d| d.cum_prob_squad * 100.0)
+        .collect();
+    let (line, area) = series_path(&values, p.chart_style == "smooth");
+    card.line = s(line);
+    card.area = s(area);
+
+    let n = summary.days.len();
+    let shown = n.min(5);
+    let axis: Vec<SharedString> = (0..shown)
+        .map(|k| {
+            let i = if shown <= 1 {
+                0
+            } else {
+                k * (n - 1) / (shown - 1)
+            };
+            s(p.short_date(summary.days[i].date))
+        })
+        .collect();
+    card.axis = model(axis);
+    card.points = model(chart);
+
+    let (target_pct, target_chests) = if summary.prob_squad < 0.50 {
+        ("50%", 95310i64)
+    } else if summary.prob_squad < 0.90 {
+        ("90%", 316500i64)
+    } else {
+        ("99%", 633200i64)
+    };
+    let remaining = (target_chests - summary.total_chests_squad).max(0);
+    card.caption = s(if remaining > 0 {
+        format!(
+            "Next milestone: {target_pct} chance at ~{} chests (~{} to go)",
+            p.int(target_chests),
+            p.int(remaining)
+        )
+    } else {
+        format!(
+            "Surpassed {target_pct} milestone! Total squad chests: {}",
+            p.int(summary.total_chests_squad)
+        )
+    });
+
+    if summary.treasure_hour_chests > 0 {
+        card.note = s(format!(
+            "Odds: 1 in 137,500 per chest. Saturdays Treasure Hours: 1 in 91,667 (1.5× boost, {} chests during events).",
+            p.int(summary.treasure_hour_chests)
+        ));
+    } else {
+        card.note =
+            s("Odds: 1 in 137,500 per chest. Saturdays Treasure Hours: 1 in 91,667 (1.5× boost).");
+    }
+
     card
 }
 
@@ -1285,6 +1460,7 @@ pub fn build(id: &str, span: i32, ctx: &Context) -> CardData {
     match id {
         "live" => live_card(span, ctx),
         "trend" => trend_card(span, ctx),
+        "token" => token_card(span, ctx),
         "types" => types_card(span, ctx),
         "modes" => modes_card(span, ctx),
         "heat" => heat_card(span, ctx),

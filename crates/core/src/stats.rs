@@ -986,6 +986,147 @@ pub fn compare(
     .collect()
 }
 
+/// Drop rate for the Pirate Shop Token for a match started at `when`.
+///
+/// Default rate is 1 in 137,500 (~0.000727%).
+/// During Saturday Treasure Hours (Fortnite.GG drop rates):
+/// - Session 1: 14:00 - 16:00 ET (19:00 - 21:00 UTC) -> 1 in 91,667 (1.5× boost)
+/// - Session 2: 21:00 - 23:00 ET (02:00 - 04:00 UTC Sunday) -> 1 in 91,667 (1 in 68,750 on Nov 7)
+pub fn token_rate(when: &DateTime<Local>) -> f64 {
+    let utc = when.to_utc();
+    let weekday = utc.weekday();
+    let hour = utc.hour();
+
+    // Nov 7 evening window (02:00 - 04:00 UTC on Nov 8) had a special 2x boost (1 in 68,750)
+    if utc.date_naive() == NaiveDate::from_ymd_opt(2026, 11, 8).unwrap() && (2..4).contains(&hour) {
+        return 1.0 / 68750.0;
+    }
+
+    // Weekly Saturday Treasure Hours (1.5x boost: 1 in 91,667)
+    // Session 1: Saturday 19:00 - 21:00 UTC
+    // Session 2: Sunday 02:00 - 04:00 UTC (Saturday evening in North America)
+    if (weekday == chrono::Weekday::Sat && (19..21).contains(&hour))
+        || (weekday == chrono::Weekday::Sun && (2..4).contains(&hour))
+    {
+        return 1.0 / 91667.0;
+    }
+
+    1.0 / 137500.0
+}
+
+pub fn is_treasure_hour(when: &DateTime<Local>) -> bool {
+    token_rate(when) > (1.0 / 137500.0) + 1e-12
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TokenDayPoint {
+    pub date: NaiveDate,
+    pub matches: i64,
+    pub chests_me: i64,
+    pub chests_squad: i64,
+    pub cum_chests_me: i64,
+    pub cum_chests_squad: i64,
+    pub cum_prob_me: f64,
+    pub cum_prob_squad: f64,
+    pub had_treasure_hour: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct TokenSummary {
+    pub total_chests_me: i64,
+    pub total_chests_squad: i64,
+    pub prob_me: f64,
+    pub prob_squad: f64,
+    pub treasure_hour_chests: i64,
+    pub days: Vec<TokenDayPoint>,
+    pub recent_cum_probs: Vec<f64>,
+}
+
+pub fn token_summary(snap: &Snapshot) -> TokenSummary {
+    if snap.match_rows.is_empty() {
+        return TokenSummary::default();
+    }
+
+    let mut matches = snap.match_rows.clone();
+    matches.sort_by_key(|m| m.when);
+
+    let mut days_points: BTreeMap<NaiveDate, TokenDayPoint> = BTreeMap::new();
+    let mut log_not_me = 0.0f64;
+    let mut log_not_squad = 0.0f64;
+    let mut cum_me = 0i64;
+    let mut cum_squad = 0i64;
+    let mut th_chests = 0i64;
+
+    for m in &matches {
+        let me = m.count.max(0);
+        let sq = m.squad_total.max(me).max(0);
+        let rate = token_rate(&m.when);
+        let is_th = is_treasure_hour(&m.when);
+
+        if is_th {
+            th_chests += sq;
+        }
+
+        cum_me += me;
+        cum_squad += sq;
+
+        let ln_fail = (1.0 - rate).ln();
+        log_not_me += me as f64 * ln_fail;
+        log_not_squad += sq as f64 * ln_fail;
+
+        let day = m.when.date_naive();
+        let prob_me = 1.0 - log_not_me.exp();
+        let prob_sq = 1.0 - log_not_squad.exp();
+
+        let entry = days_points.entry(day).or_insert_with(|| TokenDayPoint {
+            date: day,
+            matches: 0,
+            chests_me: 0,
+            chests_squad: 0,
+            cum_chests_me: 0,
+            cum_chests_squad: 0,
+            cum_prob_me: 0.0,
+            cum_prob_squad: 0.0,
+            had_treasure_hour: false,
+        });
+
+        entry.matches += 1;
+        entry.chests_me += me;
+        entry.chests_squad += sq;
+        entry.cum_chests_me = cum_me;
+        entry.cum_chests_squad = cum_squad;
+        entry.cum_prob_me = prob_me;
+        entry.cum_prob_squad = prob_sq;
+        if is_th {
+            entry.had_treasure_hour = true;
+        }
+    }
+
+    let days: Vec<TokenDayPoint> = days_points.into_values().collect();
+    let recent_cum_probs: Vec<f64> = days
+        .iter()
+        .rev()
+        .take(14)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .map(|d| d.cum_prob_squad * 100.0)
+        .collect();
+
+    let final_prob_me = 1.0 - log_not_me.exp();
+    let final_prob_squad = 1.0 - log_not_squad.exp();
+
+    TokenSummary {
+        total_chests_me: cum_me,
+        total_chests_squad: cum_squad,
+        prob_me: final_prob_me,
+        prob_squad: final_prob_squad,
+        treasure_hour_chests: th_chests,
+        days,
+        recent_cum_probs,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1047,5 +1188,110 @@ mod tests {
         );
         assert!(goals(&s, 6, 0)[0].reached);
         assert!(achievements(&s).iter().all(|a| !a.unlocked));
+    }
+
+    #[test]
+    fn token_chance_math_and_treasure_hours() {
+        use chrono::Utc;
+        // Saturday 7 Nov 2026 19:30 UTC -> Saturday Session 1 (Treasure Hour)
+        let th1_utc = Utc.with_ymd_and_hms(2026, 11, 7, 19, 30, 0).unwrap();
+        let th1_local = DateTime::<Local>::from(th1_utc);
+        assert!(is_treasure_hour(&th1_local));
+        assert!((token_rate(&th1_local) - (1.0 / 91667.0)).abs() < 1e-12);
+
+        // Sunday 8 Nov 2026 02:30 UTC -> Saturday 21:30 ET (Nov 7 special 2x window)
+        let th2_utc = Utc.with_ymd_and_hms(2026, 11, 8, 2, 30, 0).unwrap();
+        let th2_local = DateTime::<Local>::from(th2_utc);
+        assert!(is_treasure_hour(&th2_local));
+        assert!((token_rate(&th2_local) - (1.0 / 68750.0)).abs() < 1e-12);
+
+        // Regular Monday match -> Standard 1 in 137,500
+        let normal_utc = Utc.with_ymd_and_hms(2026, 11, 9, 14, 0, 0).unwrap();
+        let normal_local = DateTime::<Local>::from(normal_utc);
+        assert!(!is_treasure_hour(&normal_local));
+        assert!((token_rate(&normal_local) - (1.0 / 137500.0)).abs() < 1e-12);
+
+        // Test cumulative probability calculation
+        // 95,310 chests at standard rate should yield approx 50% chance
+        let m1 = MatchRow {
+            id: "m1".into(),
+            when: normal_local,
+            seconds: 600.0,
+            count: 45310,
+            broken: 0,
+            mode: "Squads".into(),
+            types: Counter::default(),
+            team: 95310,
+            ammo: 0,
+            placement: Some(1),
+            players: Some(4),
+            teammates: vec!["p2".into(), "p3".into(), "p4".into()],
+            mvp: None,
+            squad_total: 95310,
+            squad: None,
+            unattributed: 0,
+            stats: None,
+            note: String::new(),
+            tags: String::new(),
+            favorite: false,
+        };
+
+        let snap = Snapshot {
+            today_date: NaiveDate::from_ymd_opt(2026, 11, 9).unwrap(),
+            per_day: BTreeMap::new(),
+            all: 45310,
+            broken: 0,
+            types: Counter::default(),
+            containers: Counter::default(),
+            modes: vec![],
+            today: 0,
+            today_prev: 0,
+            week: 0,
+            week_prev: 0,
+            month: 0,
+            month_prev: 0,
+            session: 0,
+            matches: 1,
+            match_chests: 45310,
+            avg: None,
+            median: None,
+            best: None,
+            worst: None,
+            recent_totals: vec![],
+            playtime: 0.0,
+            per_hour: 0.0,
+            last: None,
+            best_day: None,
+            streak_longest: 0,
+            streak_current: 0,
+            session_best: None,
+            peak_hour: (0, None),
+            heat: [[0; 24]; 7],
+            heat_matches: [[0; 24]; 7],
+            match_days: BTreeMap::new(),
+            team_total: 95310,
+            team_types: Counter::default(),
+            team_opened: 0,
+            team_broken: 0,
+            team_containers: Counter::default(),
+            unattributed: 0,
+            board: vec![],
+            older_matches: 0,
+            team_per_match: None,
+            your_share: None,
+            player: None,
+            partial: 0,
+            match_rows: vec![m1],
+        };
+
+        let summary = token_summary(&snap);
+        assert_eq!(summary.total_chests_me, 45310);
+        assert_eq!(summary.total_chests_squad, 95310);
+        // At 95310 chests, squad prob should be very close to 50% (0.499997..)
+        assert!((summary.prob_squad - 0.50).abs() < 0.005);
+        // Personal prob at 45310 chests should be ~28%
+        assert!((summary.prob_me - 0.28).abs() < 0.02);
+        assert_eq!(summary.days.len(), 1);
+        assert_eq!(summary.days[0].cum_chests_squad, 95310);
     }
 }
