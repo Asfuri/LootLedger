@@ -470,14 +470,25 @@ pub fn stat_value(key: &str, ctx: &Context) -> StatValue {
             } else {
                 "0.0%".into()
             };
+            let (target_pct, target_chests) = if summary.prob_squad < 0.50 {
+                ("50%", 95310i64)
+            } else if summary.prob_squad < 0.90 {
+                ("90%", 316500i64)
+            } else {
+                ("99%", 633200i64)
+            };
+            let remaining = (target_chests - summary.total_chests_squad).max(0);
             let detail = if summary.total_chests_squad > 0 {
                 format!(
-                    "Squad: {} · You: {}",
+                    "Squad: {} chests · Next: {target_pct} (~{} to go)",
                     p.int(summary.total_chests_squad),
-                    p.int(summary.total_chests_me)
+                    p.int(remaining)
                 )
             } else {
-                "No chests opened yet".into()
+                format!(
+                    "Next milestone: {target_pct} at ~{} chests",
+                    p.int(target_chests)
+                )
             };
             let spark_vals: Vec<f64> = summary.recent_cum_probs.clone();
             let tips: Vec<SharedString> = summary
@@ -774,22 +785,50 @@ fn token_card(span: i32, ctx: &Context) -> CardData {
 
     card.value = s(format_pct(summary.prob_squad));
 
+    let (target_pct, target_chests) = if summary.prob_squad < 0.50 {
+        ("50%", 95310i64)
+    } else if summary.prob_squad < 0.90 {
+        ("90%", 316500i64)
+    } else {
+        ("99%", 633200i64)
+    };
+    let remaining = (target_chests - summary.total_chests_squad).max(0);
+    let milestone_msg = if remaining > 0 {
+        format!(
+            "Next milestone: {target_pct} chance at ~{} chests (~{} to go)",
+            p.int(target_chests),
+            p.int(remaining)
+        )
+    } else {
+        format!(
+            "Surpassed {target_pct} milestone! Total squad chests: {}",
+            p.int(summary.total_chests_squad)
+        )
+    };
+
+    card.caption = s(milestone_msg);
+
     if summary.total_chests_squad > 0 {
         card.detail = s(format!(
-            "Squad: {} ({} chests) · You: {} ({} chests)",
+            "Squad: {} ({} chests) · You: {} ({}) · Next: {target_pct} (~{} to go)",
             format_pct(summary.prob_squad),
             p.int(summary.total_chests_squad),
             format_pct(summary.prob_me),
-            p.int(summary.total_chests_me)
+            p.int(summary.total_chests_me),
+            p.int(remaining),
         ));
     } else {
-        card.detail = s("Open chests in Battle Royale to track token odds");
+        card.detail = s(format!(
+            "Squad: 0 chests · Next milestone: {target_pct} chance at ~{} chests",
+            p.int(target_chests)
+        ));
     }
 
     if summary.days.is_empty() {
-        card.empty = s("No matches read yet");
-        card.caption =
-            s("Play Battle Royale matches to track your squad's chance of finding the token");
+        card.empty = s(format!(
+            "No matches read yet · Next milestone: {target_pct} at ~{} chests",
+            p.int(target_chests)
+        ));
         card.note =
             s("Odds: 1 in 137,500 per chest. Saturdays Treasure Hours: 1 in 91,667 (1.5× boost).");
         return card;
@@ -850,27 +889,6 @@ fn token_card(span: i32, ctx: &Context) -> CardData {
         .collect();
     card.axis = model(axis);
     card.points = model(chart);
-
-    let (target_pct, target_chests) = if summary.prob_squad < 0.50 {
-        ("50%", 95310i64)
-    } else if summary.prob_squad < 0.90 {
-        ("90%", 316500i64)
-    } else {
-        ("99%", 633200i64)
-    };
-    let remaining = (target_chests - summary.total_chests_squad).max(0);
-    card.caption = s(if remaining > 0 {
-        format!(
-            "Next milestone: {target_pct} chance at ~{} chests (~{} to go)",
-            p.int(target_chests),
-            p.int(remaining)
-        )
-    } else {
-        format!(
-            "Surpassed {target_pct} milestone! Total squad chests: {}",
-            p.int(summary.total_chests_squad)
-        )
-    });
 
     if summary.treasure_hour_chests > 0 {
         card.note = s(format!(
