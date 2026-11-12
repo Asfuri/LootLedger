@@ -2794,7 +2794,7 @@ checksum = "5d15f86d12da44cd8d4ec3c73984537eb7f4cadcb9776a575a0a8a05ca11005c"
 
 [[package]]
 name = "lootledger"
-version = "0.8.4"
+version = "0.8.5"
 dependencies = [
  "chrono",
  "embed-resource",
@@ -2811,7 +2811,7 @@ dependencies = [
 
 [[package]]
 name = "lootledger-core"
-version = "0.8.4"
+version = "0.8.5"
 dependencies = [
  "aes",
  "chrono",

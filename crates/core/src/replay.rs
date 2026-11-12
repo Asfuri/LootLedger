@@ -292,7 +292,13 @@ struct Decoder {
     frame_time: f32,
     builder: Builder,
     chest: Chest,
+    started: std::time::Instant,
+    ticks: u32,
+    timed_out: bool,
 }
+
+/// A normal replay takes about a second; even a busy PC finishes well inside this.
+const TIME_LIMIT: std::time::Duration = std::time::Duration::from_secs(90);
 
 /// Decode a replay file's bytes like `ChestReplayReader.Analyze`.
 pub fn decode(file: &str, data: &[u8]) -> Replay {
@@ -331,6 +337,9 @@ pub fn decode(file: &str, data: &[u8]) -> Replay {
         frame_time: 0.0,
         builder: Builder::default(),
         chest: Chest::default(),
+        started: std::time::Instant::now(),
+        ticks: 0,
+        timed_out: false,
     };
     let outcome = d.read(data);
     d.fill(file, outcome)
@@ -580,7 +589,20 @@ impl Decoder {
         (major, minor.and_then(|m| m.parse().ok()).unwrap_or(0))
     }
 
+    /// True once decoding has run past `TIME_LIMIT`. A file that still hangs in some way nobody has seen yet is
+    /// then given up on instead of blocking every replay after it; the clock is read every 1,024th call.
+    fn out_of_time(&mut self) -> bool {
+        self.ticks = self.ticks.wrapping_add(1);
+        if self.ticks & 0x3FF == 0 && self.started.elapsed() > TIME_LIMIT {
+            self.timed_out = true;
+        }
+        self.timed_out
+    }
+
     fn demo_frame(&mut self, f: &mut ByteReader<'_>) -> R<()> {
+        if self.timed_out {
+            return exc("TimeoutException: Reading this replay took too long");
+        }
         if self.ver.network >= 6 {
             f.i32()?;
         }
@@ -758,7 +780,14 @@ impl Decoder {
     fn packet(&mut self, p: &mut BitReader<'_>) -> R<()> {
         self.in_packet_id += 1;
         let engine = self.ver.engine;
+        let mut previous = None;
         while !p.at_end() {
+            // Every bunch consumes bits, so a position that did not move forward means a restored end marker
+            // sent the reader back to the start of a bunch it had already read (it would repeat forever).
+            if previous.is_some_and(|before| p.pos <= before) || self.out_of_time() {
+                break;
+            }
+            previous = Some(p.pos);
             if engine < 8 {
                 p.read_bit();
             }
@@ -1007,7 +1036,12 @@ impl Decoder {
                 ar.read_byte()?; // netPlayerIndex
             }
         }
+        let mut previous = None;
         while !ar.at_end() {
+            if previous.is_some_and(|before| ar.pos <= before) || self.out_of_time() {
+                break; // same guard as in `packet`
+            }
+            previous = Some(ar.pos);
             let (rep, deleted, has_rep) = self.content_block_header(b, ar)?;
             let payload = if deleted {
                 None
