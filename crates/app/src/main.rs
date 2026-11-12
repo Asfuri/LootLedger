@@ -2543,10 +2543,12 @@ fn refresh_overlay() {
             ));
         }
         let row = view.ended.as_ref().or(snap.last.as_ref());
+        let squad_match = row.map_or(0, |r| r.squad_total.max(r.count));
         let mut lines = vec![format!(
-            "Today: {} · Session: {}",
+            "Today: {} · Session: {} · Squad (match): {}",
             p.int(snap.today),
-            p.int(snap.session)
+            p.int(snap.session),
+            p.int(squad_match)
         )];
         let mates: Vec<String> = row
             .and_then(|r| r.squad.as_ref())
@@ -2559,6 +2561,19 @@ fn refresh_overlay() {
         if p.overlay_teammates && !mates.is_empty() {
             lines.push(mates.join(" · "));
         }
+        let summary = lootledger_core::stats::token_summary(snap);
+        let pct = if summary.prob_squad >= 0.01 {
+            format!("{:.1}%", summary.prob_squad * 100.0)
+        } else if summary.prob_squad > 0.0 {
+            format!("{:.2}%", summary.prob_squad * 100.0)
+        } else {
+            "0.0%".into()
+        };
+        lines.push(format!(
+            "Squad (total): {} · Token chance: {}",
+            p.int(summary.total_chests_squad),
+            pct
+        ));
         Some((
             if view.ended.is_some() {
                 "This match"
