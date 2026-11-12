@@ -7,7 +7,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
-const LATEST: &str = "https://api.github.com/repos/femboypuppy/LootLedger/releases/latest";
+const LATEST: &str = "https://api.github.com/repos/Asfuri/LootLedger/releases/latest";
 
 #[derive(Debug, Clone)]
 pub struct Release {
