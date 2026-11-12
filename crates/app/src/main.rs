@@ -1971,8 +1971,8 @@ const PAGE_NAMES: [&str; 6] = [
     "Settings",
 ];
 const WHATS_NEW: [&str; 3] = [
-    "Faster first launch: replays are now read on several cores at once.",
-    "Snappier page switching: Overview and Statistics only rebuild when something changed.",
+    "Fixed replay reading getting stuck: one unusual replay could freeze it, so no new matches were counted.",
+    "A replay that still can't be read is now given up on after 90 seconds, so it can't block the others.",
     "Your data still never leaves this PC; only the version check and the download go over the internet.",
 ];
 

@@ -30,6 +30,9 @@ What has been checked, and what has not. Earlier history (the Python app and the
   - **Memory:** one decode peaks at about 36 MB.
 - **Page switching (0.8.4):** switching to Overview or Statistics rebuilds the cards only when the statistics, the date or the theme changed since the last build. Every change already rebuilds them when it happens.
   - **Statistics cost:** computing them takes about 45 ms on the real ledger (158 matches) when the CPU is free, so a stats cache between launches wasn't worth adding.
+- **Stuck replay (0.8.5):** one real replay (2026-11-12 04:08, a win, 15.6 MB) made the reader loop forever inside a single network packet and the app used a CPU core for hours. Cause: after a malformed bunch, restoring the temporary end marker used a stale value and moved the read position back to the start of the bunch. The packet and content loops now stop when the position fails to move forward, and decoding gives up after 90 s.
+  - **Checked:** that replay now reads in 0.8 s. All 99 other replays on disk give byte-identical results with the old and the new reader (compared as JSON), and all 100 report `ok`.
+  - **Not tested automatically:** there is no unit test for the loop, because the replay is 15 MB and can't be committed.
 - **Runtime:** the release exe imports only Windows system DLLs (no dynamic CRT, Python, Qt, .NET or WebView).
 - **Taskbar icon (0.8.2):** an off-screen window reported both a large and a small icon through WM_GETICON.
 - **Match pop-up (0.8.3):**
