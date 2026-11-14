@@ -3,6 +3,15 @@ import { Tokens } from "tokens.slint";
 import { Icons } from "icons.slint";
 import { Icon, IconButton, Button, Chip, Switch, Segmented, TextField, Slider, Stepper, Card } from "controls.slint";
 
+export struct TreasureHourItem {
+    id: string,
+    when: string,
+    boost: string,
+    source: string,
+    custom: bool,
+    active: bool,
+}
+
 export global Settings {
     in property <int> theme;          // light, dark, system
     in property <string> seed;
@@ -43,6 +52,13 @@ export global Settings {
     in property <int> goal-daily;
     in property <int> goal-weekly;
     in property <bool> celebrate;
+    in property <bool> auto-treasure-hours;
+    in property <string> treasure-status;
+    in-out property <string> th-date;
+    in-out property <string> th-start;
+    in-out property <string> th-end;
+    in-out property <string> th-boost;
+    in property <[TreasureHourItem]> treasure-hours;
     in property <string> hotkey-add;
     in property <string> hotkey-undo;
     in property <string> hotkey-overlay;
@@ -51,6 +67,8 @@ export global Settings {
     in property <bool> auto-update;
     callback set(string, string);
     callback action(string);
+    callback add-treasure-hour(string, string, string, string);
+    callback remove-treasure-hour(string);
 }
 
 component Row inherits HorizontalLayout {
@@ -334,6 +352,84 @@ export component SettingsPage inherits VerticalLayout {
             name: "Celebrate goals and trophies";
             hint: "A short message inside LootLedger. Nothing is sent anywhere.";
             Switch { checked: Settings.celebrate; label: "Celebrate goals and trophies"; toggled(on) => { Settings.set("celebrate", on ? "true" : "false"); } }
+        }
+    }
+    Section {
+        title: "Treasure Hours (Token boost)";
+        icon: Icons.bolt;
+        Row {
+            name: "Auto-sync official Treasure Hours";
+            hint: Settings.treasure-status;
+            HorizontalLayout {
+                spacing: Tokens.s;
+                Button { text: "Sync now"; icon: Icons.sync; clicked => { Settings.action("sync-treasure-hours"); } }
+                Switch { checked: Settings.auto-treasure-hours; label: "Auto-sync official Treasure Hours"; toggled(on) => { Settings.set("auto_treasure_hours", on ? "true" : "false"); } }
+            }
+        }
+        VerticalLayout {
+            spacing: Tokens.xs;
+            Text { text: "Add custom Treasure Hour"; font-size: Tokens.body; color: Tokens.on-surface; wrap: word-wrap; }
+            Text {
+                text: "Local date, start–end time (e.g. 16:00 to 20:00) and boost multiplier (e.g. 1.5, 2x, or +50%). Custom entries override auto-synced odds for that window.";
+                font-size: Tokens.body;
+                color: Tokens.on-surface-variant;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                spacing: Tokens.s;
+                alignment: start;
+                TextField { width: 130px; text <=> Settings.th-date; placeholder: "dd/mm/yyyy"; label: "Date"; }
+                TextField { width: 120px; text <=> Settings.th-start; placeholder: "16:00"; label: "Start time"; }
+                TextField { width: 120px; text <=> Settings.th-end; placeholder: "20:00"; label: "End time"; }
+                TextField { width: 120px; text <=> Settings.th-boost; placeholder: "1.5x"; label: "Boost"; }
+                Button {
+                    text: "Add";
+                    icon: Icons.add;
+                    kind: "filled";
+                    clicked => { Settings.add-treasure-hour(Settings.th-date, Settings.th-start, Settings.th-end, Settings.th-boost); }
+                }
+            }
+        }
+        if Settings.treasure-hours.length > 0: VerticalLayout {
+            spacing: Tokens.xs;
+            for item in Settings.treasure-hours: Rectangle {
+                height: 36px;
+                border-radius: Tokens.sharp ? Tokens.r-xs : Tokens.r-sm;
+                background: item.active ? Tokens.primary-container : Tokens.container-highest;
+                HorizontalLayout {
+                    padding-left: Tokens.m;
+                    padding-right: Tokens.s;
+                    spacing: Tokens.m;
+                    Text {
+                        text: item.when;
+                        font-size: Tokens.body;
+                        font-weight: item.active ? 700 : 500;
+                        color: item.active ? Tokens.on-primary-container : Tokens.on-surface;
+                        vertical-alignment: center;
+                        horizontal-stretch: 1;
+                    }
+                    Text {
+                        text: item.boost;
+                        font-size: Tokens.body;
+                        font-weight: 600;
+                        color: item.active ? Tokens.on-primary-container : Tokens.primary;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: item.source;
+                        font-size: Tokens.body;
+                        color: item.active ? Tokens.on-primary-container : Tokens.on-surface-variant;
+                        vertical-alignment: center;
+                    }
+                    if item.custom: IconButton {
+                        y: (parent.height - self.height) / 2;
+                        icon: Icons.delete;
+                        tip: "Remove custom Treasure Hour";
+                        size: 28px;
+                        clicked => { Settings.remove-treasure-hour(item.id); }
+                    }
+                }
+            }
         }
     }
     Section {

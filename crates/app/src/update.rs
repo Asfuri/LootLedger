@@ -115,6 +115,10 @@ pub fn cleanup(exe: &Path) {
     let _ = std::fs::remove_file(old_path(exe));
 }
 
+pub fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
+    get(url)
+}
+
 /// HTTPS GET with Windows' own HTTP stack (system proxy and certificates; follows GitHub's redirects).
 #[cfg(windows)]
 fn get(url: &str) -> Result<Vec<u8>, String> {

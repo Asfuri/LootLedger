@@ -1,9 +1,11 @@
 //! Dashboard statistics, a port of lootledger/stats.py and features.py: plain data over openings and
 //! matches, no SQL and no UI. Times are local; a day is a calendar date and weeks start on Monday.
 
-use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, Timelike};
+use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, NaiveTime, TimeZone, Timelike, Utc};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::path::Path;
 
 pub const SESSION_GAP_MINUTES: i64 = 30;
 const RECENT: usize = 20;
@@ -987,19 +989,267 @@ pub fn compare(
 }
 
 /// Drop rate for the Pirate Shop Token for a match started at `when`.
-///
-/// Default rate is 1 in 137,500 (~0.000727%).
-/// During Saturday Treasure Hours (Fortnite.GG drop rates):
-/// - Session 1: 14:00 - 16:00 ET (19:00 - 21:00 UTC) -> 1 in 91,667 (1.5× boost)
-/// - Session 2: 21:00 - 23:00 ET (02:00 - 04:00 UTC Sunday) -> 1 in 91,667 (1 in 68,750 on Nov 7)
-pub fn token_rate(when: &DateTime<Local>) -> f64 {
-    let utc = when.to_utc();
+pub const BASE_TOKEN_DENOM: f64 = 137500.0;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TreasureWindow {
+    pub id: String,
+    pub start_utc: DateTime<Utc>,
+    pub end_utc: DateTime<Utc>,
+    /// Multiplier applied to the base 1 in 137,500 rate (e.g. 1.5 for 1 in 91,667; 2.0 for 1 in 68,750).
+    pub boost: f64,
+    #[serde(default)]
+    pub label: String,
+    #[serde(default)]
+    pub synced: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TreasureStore {
+    #[serde(default)]
+    pub synced: Vec<TreasureWindow>,
+    #[serde(default)]
+    pub custom: Vec<TreasureWindow>,
+    #[serde(default)]
+    pub last_synced: Option<DateTime<Utc>>,
+}
+
+impl TreasureStore {
+    pub fn read(path: &Path) -> Self {
+        std::fs::read(path)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Self>(&b).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn save(&self, path: &Path) -> std::io::Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let temp = path.with_extension("tmp");
+        std::fs::write(&temp, serde_json::to_vec_pretty(self)?)?;
+        std::fs::rename(&temp, path)
+    }
+
+    pub fn all_windows(&self) -> Vec<TreasureWindow> {
+        let mut out = Vec::with_capacity(self.custom.len() + self.synced.len());
+        out.extend(self.custom.iter().cloned());
+        out.extend(self.synced.iter().cloned());
+        out
+    }
+}
+
+/// Parses LED-N/Fortnite-ChestCounter's `content/content.json` `treasureHours` array.
+pub fn parse_ledn_treasure_hours(text: &str) -> Result<Vec<TreasureWindow>, String> {
+    let root: Value = serde_json::from_str(text).map_err(|e| format!("Invalid JSON: {e}"))?;
+    let arr = root["treasureHours"]
+        .as_array()
+        .ok_or_else(|| "Missing treasureHours list".to_owned())?;
+    let mut out = Vec::new();
+    for (i, item) in arr.iter().enumerate() {
+        let Some(start_s) = item["start"].as_str() else {
+            continue;
+        };
+        let Some(end_s) = item["end"].as_str() else {
+            continue;
+        };
+        let Ok(start_dt) = DateTime::parse_from_rfc3339(start_s) else {
+            continue;
+        };
+        let Ok(end_dt) = DateTime::parse_from_rfc3339(end_s) else {
+            continue;
+        };
+        let start_utc = start_dt.with_timezone(&Utc);
+        let end_utc = end_dt.with_timezone(&Utc);
+        if end_utc <= start_utc {
+            continue;
+        }
+        let boost = item["boosts"]["pirate-shop"]
+            .as_f64()
+            .or_else(|| item["boost"].as_f64())
+            .unwrap_or(1.5);
+        if !boost.is_finite() || boost <= 1.0 {
+            continue;
+        }
+        let confirmed = item["confirmed"].as_bool().unwrap_or(true);
+        out.push(TreasureWindow {
+            id: format!("sync-{i}-{}", start_utc.timestamp()),
+            start_utc,
+            end_utc,
+            boost,
+            label: if confirmed {
+                "Auto (confirmed)".into()
+            } else {
+                "Auto (expected)".into()
+            },
+            synced: true,
+        });
+    }
+    Ok(out)
+}
+
+fn parse_flexible_date(text: &str, date_format: &str) -> Option<NaiveDate> {
+    let t = text.trim();
+    if t.is_empty() || t.eq_ignore_ascii_case("today") || t.eq_ignore_ascii_case("hoje") {
+        return Some(Local::now().date_naive());
+    }
+    let primary = match date_format {
+        "mdy" => "%m/%d/%Y",
+        "iso" => "%Y-%m-%d",
+        _ => "%d/%m/%Y",
+    };
+    for fmt in [primary, "%d/%m/%Y", "%Y-%m-%d", "%m/%d/%Y", "%d-%m-%Y"] {
+        if let Ok(d) = NaiveDate::parse_from_str(t, fmt) {
+            return Some(d);
+        }
+    }
+    // Allow short "dd/mm" or "mm/dd" using the current year
+    if let Some((a, b)) = t.split_once('/')
+        && let (Ok(x), Ok(y)) = (a.trim().parse::<u32>(), b.trim().parse::<u32>())
+    {
+        let year = Local::now().year();
+        let (month, day) = if date_format == "mdy" { (x, y) } else { (y, x) };
+        if let Some(d) = NaiveDate::from_ymd_opt(year, month, day) {
+            return Some(d);
+        }
+    }
+    None
+}
+
+fn parse_flexible_time(text: &str) -> Option<(NaiveTime, bool)> {
+    let t = text.trim().to_ascii_lowercase();
+    if t.is_empty() {
+        return None;
+    }
+    let (is_am, is_pm, clean) = if let Some(s) = t.strip_suffix("am") {
+        (true, false, s.trim())
+    } else if let Some(s) = t.strip_suffix("pm") {
+        (false, true, s.trim())
+    } else {
+        (false, false, t.as_str())
+    };
+    let clean = clean.replace(['h', 'H', '.'], ":");
+    let clean = clean.trim_end_matches(':');
+    let (h_str, m_str) = clean.split_once(':').unwrap_or((clean, "0"));
+    let mut hour: u32 = h_str.trim().parse().ok()?;
+    let min: u32 = if m_str.trim().is_empty() {
+        0
+    } else {
+        m_str.trim().parse().ok()?
+    };
+    if min >= 60 {
+        return None;
+    }
+    if is_pm && hour < 12 {
+        hour += 12;
+    } else if is_am && hour == 12 {
+        hour = 0;
+    }
+    if hour == 24 && min == 0 {
+        return Some((NaiveTime::from_hms_opt(0, 0, 0)?, true));
+    }
+    NaiveTime::from_hms_opt(hour, min, 0).map(|nt| (nt, false))
+}
+
+pub fn parse_boost_input(text: &str) -> Result<f64, String> {
+    let raw = text.trim().replace(',', ".");
+    if raw.is_empty() {
+        return Err("Enter a chance boost (for example 1.5, 2x, or +50%).".into());
+    }
+    let boost = if let Some(pct_s) = raw.strip_suffix('%') {
+        let p: f64 = pct_s
+            .trim()
+            .trim_start_matches('+')
+            .parse()
+            .map_err(|_| "Use a boost like 1.5, 2x, or +50%.".to_owned())?;
+        1.0 + p / 100.0
+    } else {
+        let mult_s = raw
+            .trim_end_matches(['x', 'X', '×'])
+            .trim_start_matches(['x', 'X', '×'])
+            .trim();
+        mult_s
+            .parse::<f64>()
+            .map_err(|_| "Use a boost like 1.5, 2x, or +50%.".to_owned())?
+    };
+    if !boost.is_finite() || boost <= 0.0 || boost > 1000.0 {
+        return Err("Boost must be greater than 0 and at most 1000×.".into());
+    }
+    Ok(boost)
+}
+
+/// Parses a user-entered local date, start/end times, and boost into a UTC `TreasureWindow`.
+pub fn parse_custom_treasure_window(
+    date_str: &str,
+    start_str: &str,
+    end_str: &str,
+    boost_str: &str,
+    date_format: &str,
+) -> Result<TreasureWindow, String> {
+    let date = parse_flexible_date(date_str, date_format).ok_or_else(|| {
+        "Invalid date. Use your Settings date format (e.g. dd/mm/yyyy).".to_owned()
+    })?;
+    let (start_time, start_next_day) = parse_flexible_time(start_str)
+        .ok_or_else(|| "Invalid start time (e.g. 16:00).".to_owned())?;
+    let (end_time, end_is_24h) =
+        parse_flexible_time(end_str).ok_or_else(|| "Invalid end time (e.g. 20:00).".to_owned())?;
+    let boost = parse_boost_input(boost_str)?;
+
+    let start_date = if start_next_day {
+        date + Duration::days(1)
+    } else {
+        date
+    };
+    let mut end_date = if end_is_24h {
+        date + Duration::days(1)
+    } else {
+        date
+    };
+    let start_naive = start_date.and_time(start_time);
+    let mut end_naive = end_date.and_time(end_time);
+    if end_naive <= start_naive {
+        end_date += Duration::days(1);
+        end_naive = end_date.and_time(end_time);
+    }
+
+    let start_local = Local
+        .from_local_datetime(&start_naive)
+        .earliest()
+        .or_else(|| Local.from_local_datetime(&start_naive).latest())
+        .ok_or_else(|| "Could not resolve start time in your timezone.".to_owned())?;
+    let end_local = Local
+        .from_local_datetime(&end_naive)
+        .earliest()
+        .or_else(|| Local.from_local_datetime(&end_naive).latest())
+        .ok_or_else(|| "Could not resolve end time in your timezone.".to_owned())?;
+
+    let start_utc = start_local.with_timezone(&Utc);
+    let end_utc = end_local.with_timezone(&Utc);
+    let now_nanos = Utc::now().timestamp_nanos_opt().unwrap_or(0);
+    Ok(TreasureWindow {
+        id: format!("custom-{now_nanos}"),
+        start_utc,
+        end_utc,
+        boost,
+        label: "Manual".into(),
+        synced: false,
+    })
+}
+
+fn fallback_token_rate(utc: &DateTime<Utc>) -> f64 {
     let weekday = utc.weekday();
     let hour = utc.hour();
 
     // Nov 7 evening window (02:00 - 04:00 UTC on Nov 8) had a special 2x boost (1 in 68,750)
     if utc.date_naive() == NaiveDate::from_ymd_opt(2026, 11, 8).unwrap() && (2..4).contains(&hour) {
         return 1.0 / 68750.0;
+    }
+
+    // Nov 14 extended window (19:00 - 23:00 UTC)
+    if utc.date_naive() == NaiveDate::from_ymd_opt(2026, 11, 14).unwrap()
+        && (19..23).contains(&hour)
+    {
+        return 1.0 / 91667.0;
     }
 
     // Weekly Saturday Treasure Hours (1.5x boost: 1 in 91,667)
@@ -1011,11 +1261,131 @@ pub fn token_rate(when: &DateTime<Local>) -> f64 {
         return 1.0 / 91667.0;
     }
 
-    1.0 / 137500.0
+    1.0 / BASE_TOKEN_DENOM
+}
+
+/// Token drop rate per chest at `when`, respecting custom manual windows first, then synced windows,
+/// then built-in fallback rules outside the synced span.
+pub fn token_rate_with(when: &DateTime<Local>, windows: &[TreasureWindow]) -> f64 {
+    let utc = when.with_timezone(&Utc);
+
+    // 1. Manual overrides take priority over auto-synced and fallback rules.
+    let mut manual_match: Option<f64> = None;
+    for w in windows.iter().filter(|w| !w.synced) {
+        if utc >= w.start_utc && utc < w.end_utc {
+            manual_match = Some(manual_match.map_or(w.boost, |b| b.max(w.boost)));
+        }
+    }
+    if let Some(boost) = manual_match {
+        return (boost / BASE_TOKEN_DENOM).clamp(0.0, 1.0);
+    }
+
+    // 2. Auto-synced windows.
+    let mut synced_match: Option<f64> = None;
+    let mut synced_bounds: Option<(DateTime<Utc>, DateTime<Utc>)> = None;
+    for w in windows.iter().filter(|w| w.synced) {
+        synced_bounds = Some(match synced_bounds {
+            Some((lo, hi)) => (lo.min(w.start_utc), hi.max(w.end_utc)),
+            None => (w.start_utc, w.end_utc),
+        });
+        if utc >= w.start_utc && utc < w.end_utc {
+            synced_match = Some(synced_match.map_or(w.boost, |b| b.max(w.boost)));
+        }
+    }
+    if let Some(boost) = synced_match {
+        return (boost / BASE_TOKEN_DENOM).clamp(0.0, 1.0);
+    }
+
+    // 3. Built-in fallback applies when no synced data covers this date span.
+    if let Some((lo, hi)) = synced_bounds
+        && utc >= lo
+        && utc <= hi
+    {
+        return 1.0 / BASE_TOKEN_DENOM;
+    }
+
+    fallback_token_rate(&utc)
+}
+
+pub fn active_treasure_window(
+    when: &DateTime<Local>,
+    windows: &[TreasureWindow],
+) -> Option<(f64, Option<DateTime<Utc>>, bool)> {
+    let utc = when.with_timezone(&Utc);
+    let mut manual_best: Option<&TreasureWindow> = None;
+    for w in windows.iter().filter(|w| !w.synced) {
+        if utc >= w.start_utc && utc < w.end_utc {
+            manual_best = Some(match manual_best {
+                Some(prev) if prev.boost >= w.boost => prev,
+                _ => w,
+            });
+        }
+    }
+    if let Some(w) = manual_best {
+        return (w.boost > 1.0).then_some((w.boost, Some(w.end_utc), true));
+    }
+
+    let mut synced_best: Option<&TreasureWindow> = None;
+    let mut synced_bounds: Option<(DateTime<Utc>, DateTime<Utc>)> = None;
+    for w in windows.iter().filter(|w| w.synced) {
+        synced_bounds = Some(match synced_bounds {
+            Some((lo, hi)) => (lo.min(w.start_utc), hi.max(w.end_utc)),
+            None => (w.start_utc, w.end_utc),
+        });
+        if utc >= w.start_utc && utc < w.end_utc {
+            synced_best = Some(match synced_best {
+                Some(prev) if prev.boost >= w.boost => prev,
+                _ => w,
+            });
+        }
+    }
+    if let Some(w) = synced_best {
+        return (w.boost > 1.0).then_some((w.boost, Some(w.end_utc), false));
+    }
+
+    if let Some((lo, hi)) = synced_bounds
+        && utc >= lo
+        && utc <= hi
+    {
+        return None;
+    }
+
+    let rate = fallback_token_rate(&utc);
+    if rate > (1.0 / BASE_TOKEN_DENOM) + 1e-12 {
+        let boost = (rate * BASE_TOKEN_DENOM * 100.0).round() / 100.0;
+        return Some((boost, None, false));
+    }
+    None
+}
+
+pub fn next_treasure_window(
+    when: &DateTime<Local>,
+    windows: &[TreasureWindow],
+) -> Option<TreasureWindow> {
+    let utc = when.with_timezone(&Utc);
+    windows
+        .iter()
+        .filter(|w| w.start_utc > utc && w.boost > 1.0)
+        .min_by_key(|w| w.start_utc)
+        .cloned()
+}
+
+/// Token drop rate per chest using the built-in schedule.
+///
+/// Default rate is 1 in 137,500 (~0.000727%).
+/// During Saturday Treasure Hours (Fortnite.GG drop rates):
+/// - Session 1: 14:00 - 16:00 ET (19:00 - 21:00 UTC) -> 1 in 91,667 (1.5× boost)
+/// - Session 2: 21:00 - 23:00 ET (02:00 - 04:00 UTC Sunday) -> 1 in 91,667 (1 in 68,750 on Nov 7)
+pub fn token_rate(when: &DateTime<Local>) -> f64 {
+    token_rate_with(when, &[])
+}
+
+pub fn is_treasure_hour_with(when: &DateTime<Local>, windows: &[TreasureWindow]) -> bool {
+    token_rate_with(when, windows) > (1.0 / BASE_TOKEN_DENOM) + 1e-12
 }
 
 pub fn is_treasure_hour(when: &DateTime<Local>) -> bool {
-    token_rate(when) > (1.0 / 137500.0) + 1e-12
+    is_treasure_hour_with(when, &[])
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1043,6 +1413,10 @@ pub struct TokenSummary {
 }
 
 pub fn token_summary(snap: &Snapshot) -> TokenSummary {
+    token_summary_with(snap, &[])
+}
+
+pub fn token_summary_with(snap: &Snapshot, windows: &[TreasureWindow]) -> TokenSummary {
     if snap.match_rows.is_empty() {
         return TokenSummary::default();
     }
@@ -1060,8 +1434,8 @@ pub fn token_summary(snap: &Snapshot) -> TokenSummary {
     for m in &matches {
         let me = m.count.max(0);
         let sq = m.squad_total.max(me).max(0);
-        let rate = token_rate(&m.when);
-        let is_th = is_treasure_hour(&m.when);
+        let rate = token_rate_with(&m.when, windows);
+        let is_th = is_treasure_hour_with(&m.when, windows);
 
         if is_th {
             th_chests += sq;
@@ -1293,5 +1667,44 @@ mod tests {
         assert!((summary.prob_me - 0.28).abs() < 0.02);
         assert_eq!(summary.days.len(), 1);
         assert_eq!(summary.days[0].cum_chests_squad, 95310);
+    }
+
+    #[test]
+    fn custom_and_synced_treasure_windows_work() {
+        let ledn_json = r#"{
+            "treasureHours": [
+                {
+                    "start": "2026-11-14T19:00:00Z",
+                    "end": "2026-11-14T23:00:00Z",
+                    "boosts": { "pirate-shop": 1.5 },
+                    "confirmed": true
+                }
+            ]
+        }"#;
+        let synced = parse_ledn_treasure_hours(ledn_json).unwrap();
+        assert_eq!(synced.len(), 1);
+        assert!((synced[0].boost - 1.5).abs() < 1e-9);
+        assert!(synced[0].synced);
+
+        let during_ext =
+            DateTime::<Local>::from(Utc.with_ymd_and_hms(2026, 11, 14, 22, 15, 0).unwrap());
+        assert!(is_treasure_hour_with(&during_ext, &synced));
+        assert!((token_rate_with(&during_ext, &synced) - (1.5 / BASE_TOKEN_DENOM)).abs() < 1e-12);
+
+        // Manual override with higher boost takes priority over synced window
+        let mut manual =
+            parse_custom_treasure_window("15/11/2026", "23:00", "01:00", "+100%", "dmy").unwrap();
+        assert_eq!((manual.end_utc - manual.start_utc).num_hours(), 2);
+        assert!((manual.boost - 2.0).abs() < 1e-9);
+        assert!(!manual.synced);
+
+        // Brazilian comma format and 'x' suffix
+        assert!((parse_boost_input("1,5x").unwrap() - 1.5).abs() < 1e-9);
+        assert!((parse_boost_input("3x").unwrap() - 3.0).abs() < 1e-9);
+
+        manual.start_utc = Utc.with_ymd_and_hms(2026, 11, 14, 21, 0, 0).unwrap();
+        manual.end_utc = Utc.with_ymd_and_hms(2026, 11, 14, 23, 0, 0).unwrap();
+        let combined = vec![manual, synced[0].clone()];
+        assert!((token_rate_with(&during_ext, &combined) - (2.0 / BASE_TOKEN_DENOM)).abs() < 1e-12);
     }
 }

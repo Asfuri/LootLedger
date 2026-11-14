@@ -120,6 +120,7 @@ pub struct Context<'a> {
     pub health: Option<Health>,
     pub trend: (i64, Grain),
     pub compare: [NaiveDate; 4],
+    pub treasure_hours: &'a [stats::TreasureWindow],
 }
 
 #[derive(Clone, Default)]
@@ -771,7 +772,7 @@ fn token_card(span: i32, ctx: &Context) -> CardData {
         .position(|x| *x == p.chart_style)
         .unwrap_or(0) as i32;
 
-    let summary = stats::token_summary(snap);
+    let summary = stats::token_summary_with(snap, ctx.treasure_hours);
 
     let format_pct = |prob: f64| {
         if prob >= 0.01 {
@@ -824,13 +825,40 @@ fn token_card(span: i32, ctx: &Context) -> CardData {
         ));
     }
 
+    let now_local = Local::now();
+    let th_note = if let Some((boost, end_opt, is_manual)) =
+        stats::active_treasure_window(&now_local, ctx.treasure_hours)
+    {
+        let denom = (stats::BASE_TOKEN_DENOM / boost).round() as i64;
+        let kind = if is_manual { "Manual" } else { "Active" };
+        let until = end_opt
+            .map(|e| format!(" until {}", p.clock_time(e.with_timezone(&Local))))
+            .unwrap_or_default();
+        format!(
+            "⚡ {kind} Treasure Hour LIVE ({boost:.2}× boost{until} · 1 in {}){}",
+            p.int(denom),
+            if summary.treasure_hour_chests > 0 {
+                format!(" · {} boosted chests", p.int(summary.treasure_hour_chests))
+            } else {
+                String::new()
+            }
+        )
+    } else if summary.treasure_hour_chests > 0 {
+        format!(
+            "Base odds: 1 in 137,500 · {} chests opened during Treasure Hours (Settings → Treasure Hours).",
+            p.int(summary.treasure_hour_chests)
+        )
+    } else {
+        "Base odds: 1 in 137,500 per chest · Configure boost windows in Settings → Treasure Hours."
+            .to_owned()
+    };
+
     if summary.days.is_empty() {
         card.empty = s(format!(
             "No matches read yet · Next milestone: {target_pct} at ~{} chests",
             p.int(target_chests)
         ));
-        card.note =
-            s("Odds: 1 in 137,500 per chest. Saturdays Treasure Hours: 1 in 91,667 (1.5× boost).");
+        card.note = s(th_note);
         return card;
     }
 
@@ -889,17 +917,7 @@ fn token_card(span: i32, ctx: &Context) -> CardData {
         .collect();
     card.axis = model(axis);
     card.points = model(chart);
-
-    if summary.treasure_hour_chests > 0 {
-        card.note = s(format!(
-            "Odds: 1 in 137,500 per chest. Saturdays Treasure Hours: 1 in 91,667 (1.5× boost, {} chests during events).",
-            p.int(summary.treasure_hour_chests)
-        ));
-    } else {
-        card.note =
-            s("Odds: 1 in 137,500 per chest. Saturdays Treasure Hours: 1 in 91,667 (1.5× boost).");
-    }
-
+    card.note = s(th_note);
     card
 }
 

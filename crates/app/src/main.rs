@@ -59,6 +59,8 @@ struct App {
     shown_commands: Vec<usize>,
     theme_dirty: bool,
     hotkeys_busy: Vec<String>,
+    treasure: lootledger_core::stats::TreasureStore,
+    treasure_hours: Vec<lootledger_core::stats::TreasureWindow>,
 }
 
 /// What the statistics depend on: the ledger version, whether broken-open chests count, and today's date.
@@ -124,6 +126,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let today = Local::now().date_naive();
     let default_trend = (prefs.default_range, Grain::Day);
+    let treasure = lootledger_core::stats::TreasureStore::read(&folder.join("treasure-hours.json"));
+    let treasure_hours = treasure.all_windows();
     let app = App {
         ui: ui.as_weak(),
         folder: folder.clone(),
@@ -154,6 +158,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         shown_commands: Vec::new(),
         theme_dirty: false,
         hotkeys_busy: Vec::new(),
+        treasure,
+        treasure_hours,
     };
     let app = Rc::new(RefCell::new(app));
     APP.with(|a| *a.borrow_mut() = Some(app.clone()));
@@ -202,6 +208,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Development builds never replace themselves.
         if !cfg!(debug_assertions) && with_app(|a| a.prefs.auto_update).unwrap_or(false) {
             Timer::single_shot(Duration::from_secs(5), || check_update(false));
+        }
+        if with_app(|a| a.prefs.auto_treasure_hours).unwrap_or(false) {
+            Timer::single_shot(Duration::from_secs(2), || sync_treasure_hours(false));
         }
     }
     let auto = with_app(|a| a.config.auto_watch()).unwrap_or(false);
@@ -557,6 +566,101 @@ fn fill_settings() {
         s.set_goal_daily(p.goal_daily as i32);
         s.set_goal_weekly(p.goal_weekly as i32);
         s.set_celebrate(p.celebrate);
+        s.set_auto_treasure_hours(p.auto_treasure_hours);
+        let now_local = Local::now();
+        let now_utc = chrono::Utc::now();
+        let status = if let Some((boost, end_opt, _)) =
+            lootledger_core::stats::active_treasure_window(&now_local, &app.treasure_hours)
+        {
+            let until = end_opt
+                .map(|e| format!(" until {}", p.clock_time(e.with_timezone(&Local))))
+                .unwrap_or_default();
+            format!(
+                "⚡ ACTIVE NOW ({boost:.2}×{until}) · {} windows loaded.",
+                app.treasure_hours.len()
+            )
+            .replace(".00×", "×")
+        } else if let Some(next) =
+            lootledger_core::stats::next_treasure_window(&now_local, &app.treasure_hours)
+        {
+            let ns = next.start_utc.with_timezone(&Local);
+            let ne = next.end_utc.with_timezone(&Local);
+            format!(
+                "Next: {} {}–{} ({:.2}×) · {} windows loaded.",
+                p.full_date(ns.date_naive()),
+                p.clock_time(ns),
+                p.clock_time(ne),
+                next.boost,
+                app.treasure_hours.len()
+            )
+            .replace(".00×", "×")
+        } else {
+            format!(
+                "Fetches official & extended Treasure Hours from GitHub ({} loaded).",
+                app.treasure_hours.len()
+            )
+        };
+        s.set_treasure_status(status.into());
+        if s.get_th_date().is_empty() {
+            s.set_th_date(p.full_date(now_local.date_naive()).into());
+        }
+        if s.get_th_start().is_empty() {
+            s.set_th_start("16:00".into());
+        }
+        if s.get_th_end().is_empty() {
+            s.set_th_end("20:00".into());
+        }
+        if s.get_th_boost().is_empty() {
+            s.set_th_boost("1.5x".into());
+        }
+        let mut sorted_th = app.treasure_hours.clone();
+        sorted_th.sort_by(|a, b| {
+            b.start_utc
+                .cmp(&a.start_utc)
+                .then_with(|| a.synced.cmp(&b.synced))
+        });
+        let th_items: Vec<TreasureHourItem> = sorted_th
+            .into_iter()
+            .map(|w| {
+                let s_local = w.start_utc.with_timezone(&Local);
+                let e_local = w.end_utc.with_timezone(&Local);
+                let when = if s_local.date_naive() == e_local.date_naive() {
+                    format!(
+                        "{} · {}–{}",
+                        p.full_date(s_local.date_naive()),
+                        p.clock_time(s_local),
+                        p.clock_time(e_local)
+                    )
+                } else {
+                    format!(
+                        "{} {} – {} {}",
+                        p.full_date(s_local.date_naive()),
+                        p.clock_time(s_local),
+                        p.full_date(e_local.date_naive()),
+                        p.clock_time(e_local)
+                    )
+                };
+                let denom = (lootledger_core::stats::BASE_TOKEN_DENOM / w.boost).round() as i64;
+                let boost = format!("{:.2}× (1 in {})", w.boost, p.int(denom)).replace(".00×", "×");
+                let active = now_utc >= w.start_utc && now_utc < w.end_utc;
+                let source = if active {
+                    format!("LIVE · {}", if w.synced { "Auto" } else { "Manual" })
+                } else if w.label.is_empty() {
+                    if w.synced { "Auto" } else { "Manual" }.to_owned()
+                } else {
+                    w.label.clone()
+                };
+                TreasureHourItem {
+                    id: w.id.into(),
+                    when: when.into(),
+                    boost: boost.into(),
+                    source: source.into(),
+                    custom: !w.synced,
+                    active,
+                }
+            })
+            .collect();
+        s.set_treasure_hours(cards::model(th_items));
         s.set_hotkey_add(c.hotkey("hotkey_add").into());
         s.set_hotkey_undo(c.hotkey("hotkey_undo").into());
         s.set_hotkey_overlay(p.hotkey_overlay.clone().into());
@@ -623,6 +727,7 @@ fn set_setting(name: &str, value: &str) {
         | "colorblind"
         | "show_page_title"
         | "auto_update"
+        | "auto_treasure_hours"
         | "time_24h"
         | "live_tracking"
         | "overlay"
@@ -1080,6 +1185,7 @@ fn context<'a>(
         health: needs_health.then(|| health(app)),
         trend: app.trend[grid],
         compare: app.compare[grid],
+        treasure_hours: &app.treasure_hours,
     }
 }
 
@@ -1665,8 +1771,14 @@ fn wire(ui: &AppWindow) {
         "Save weekly recap…" => share_image(true, false),
         _ => {}
     });
-    ui.global::<Settings>()
-        .on_action(|action| settings_action(&action));
+    let settings = ui.global::<Settings>();
+    settings.on_action(|action| settings_action(&action));
+    settings.on_add_treasure_hour(|date, start, end, boost| {
+        add_treasure_hour(&date, &start, &end, &boost);
+    });
+    settings.on_remove_treasure_hour(|id| {
+        remove_treasure_hour(&id);
+    });
     ui.on_shortcut(|which| match which.as_str() {
         "palette" => open_palette(),
         _ => show_shortcuts(),
@@ -1925,6 +2037,7 @@ fn settings_action(action: &str) {
                 }
             }
         }
+        "sync-treasure-hours" => sync_treasure_hours(true),
         "Check for updates" => check_update(true),
         "Clear all data" => {
             if confirm(
@@ -2561,7 +2674,7 @@ fn refresh_overlay() {
         if p.overlay_teammates && !mates.is_empty() {
             lines.push(mates.join(" · "));
         }
-        let summary = lootledger_core::stats::token_summary(snap);
+        let summary = lootledger_core::stats::token_summary_with(snap, &app.treasure_hours);
         let pct = if summary.prob_squad >= 0.01 {
             format!("{:.1}%", summary.prob_squad * 100.0)
         } else if summary.prob_squad > 0.0 {
@@ -2848,5 +2961,87 @@ fn install_update(restart: bool) {
         }
         Ok(_) => {}
         Err(e) => snack(format!("Could not install the update: {e}")),
+    }
+}
+
+const TREASURE_HOURS_URL: &str =
+    "https://raw.githubusercontent.com/LED-N/Fortnite-ChestCounter/main/content/content.json";
+
+fn sync_treasure_hours(manual: bool) {
+    if manual {
+        snack("Syncing Treasure Hours…");
+    }
+    std::thread::spawn(move || {
+        let result = update::fetch_bytes(TREASURE_HOURS_URL).and_then(|bytes| {
+            let text = std::str::from_utf8(&bytes)
+                .map_err(|_| "Treasure Hours file was not valid UTF-8.".to_owned())?;
+            lootledger_core::stats::parse_ledn_treasure_hours(text)
+        });
+        let _ = slint::invoke_from_event_loop(move || match result {
+            Ok(windows) => {
+                let count = windows.len();
+                let saved = with_app(|app| {
+                    app.treasure.synced = windows;
+                    app.treasure.last_synced = Some(chrono::Utc::now());
+                    app.treasure_hours = app.treasure.all_windows();
+                    app.treasure.save(&app.folder.join("treasure-hours.json"))
+                });
+                if let Some(r) = saved {
+                    report(r);
+                }
+                fill_settings();
+                refresh(true);
+                if manual {
+                    snack(format!("Synced {count} Treasure Hours from GitHub"));
+                }
+            }
+            Err(e) if manual => snack(e),
+            _ => {}
+        });
+    });
+}
+
+fn add_treasure_hour(date: &str, start: &str, end: &str, boost: &str) {
+    let date_format = with_app(|a| a.prefs.date_format.clone()).unwrap_or_else(|| "dmy".into());
+    match lootledger_core::stats::parse_custom_treasure_window(
+        date,
+        start,
+        end,
+        boost,
+        &date_format,
+    ) {
+        Ok(win) => {
+            let saved = with_app(|app| {
+                app.treasure.custom.push(win);
+                app.treasure_hours = app.treasure.all_windows();
+                app.treasure.save(&app.folder.join("treasure-hours.json"))
+            });
+            if let Some(r) = saved {
+                report(r);
+            }
+            fill_settings();
+            refresh(true);
+            snack("Treasure Hour added");
+        }
+        Err(e) => snack(e),
+    }
+}
+
+fn remove_treasure_hour(id: &str) {
+    let saved = with_app(|app| {
+        let before = app.treasure.custom.len();
+        app.treasure.custom.retain(|w| w.id != id);
+        if app.treasure.custom.len() == before {
+            return None;
+        }
+        app.treasure_hours = app.treasure.all_windows();
+        Some(app.treasure.save(&app.folder.join("treasure-hours.json")))
+    })
+    .flatten();
+    if let Some(r) = saved {
+        report(r);
+        fill_settings();
+        refresh(true);
+        snack("Custom Treasure Hour removed");
     }
 }
