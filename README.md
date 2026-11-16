@@ -5,7 +5,7 @@
 <h1 align="center">LootLedger</h1>
 
 <p align="center">
-  <b>Count every Fortnite chest you open: per match, per day, per type, all time.</b><br>
+  <b>Count every Fortnite chest you open: per match, per session, per day, all time.</b><br>
   Reads the replays Fortnite already saves on your PC. No account, no setup, no game hooks.
 </p>
 
@@ -18,7 +18,7 @@
   <img src=".github/readme/tour.gif" width="900" alt="A tour of LootLedger: Overview, Matches, Openings, Statistics, Teammates and Settings">
 </p>
 
-<sub>Screenshots use made-up demo data.</sub>
+<sub>All screenshots use made-up demo data.</sub>
 
 ## Get started
 
@@ -29,6 +29,19 @@
 LootLedger never touches the game. It doesn't read game memory, inject anything or automate gameplay. It only reads the `.replay` files Fortnite writes once a match is over. Your data stays on your PC; the only internet traffic is the update check.
 
 ## What you get
+
+### Your session at a glance
+
+The first card on the Overview page follows the session you are playing right now. A session is a run of matches less than 30 minutes apart. When you stop, the card keeps showing your last session and when it ended.
+
+<img src=".github/readme/session.png" width="732" alt="The Session overview card: chests, time in the session, chests per match and per hour, best match, chest types, results and teammates">
+
+- **Chests** opened this session, with a "+N" pop-up for each match as it is counted.
+- **Time:** how long the session has lasted and how much of it was in matches.
+- **Pace:** chests per match and per hour.
+- **Your best match** of the session, the chest types you opened, your best placement, wins and eliminations.
+- **Teammates:** who opened the most chests, and a small chart of chests per match.
+- The dot at the top shows what the game is doing: waiting, live, reading the replay or match counted.
 
 ### A dashboard you can arrange
 
@@ -70,13 +83,15 @@ Save or copy a summary card or a weekly recap image, ready to post.
 ### Also included
 
 - **Pop-up after each match:** your chests, placement and how the match compares, in the corner for a few seconds, without taking focus from the game.
-- **Live match card** and a pop-out, always-on-top **counter** for a second screen.
+- **Pop-out counter:** a small always-on-top window with your live chest count, for a second screen.
 - **Corrections:** remove, restore or fix any entry, add a manual +1, and undo. Every change is kept in an audit trail, and re-reading replays never overwrites your edits.
 - **Export** to JSON or CSV, **backups** and **restore**. **Clear all data** saves a backup first.
 - **Global shortcuts**, a command palette (**Ctrl+K**) and keyboard navigation (**Ctrl+1** to **Ctrl+6**; **?** or **F1** lists all shortcuts).
 - **Automatic updates:** new versions download from this project's GitHub releases. Each download is checked against GitHub's published SHA-256 and installed when you close the app. You can turn this off in **Settings → About**.
 
-## What counts as a chest
+## How it counts
+
+### What counts as a chest
 
 | Shown as | Fortnite classes (from the replay) | In chest total |
 |---|---|---|
@@ -90,7 +105,15 @@ Save or copy a summary card or a weekly recap image, ready to post.
 
 **Broken open** means your damage destroyed the chest before anyone searched it, so its loot spilled. These count by default; you can turn that off in Settings.
 
+### Why chests appear after the match, not during it
+
+While Fortnite records a match, it encrypts the replay and only writes the key when the match ends. Epic does this so replay files can't be used as a wallhack. The unfinished file has no chest events, and the game's log doesn't record chest openings either. So LootLedger counts from the finished replay, a few seconds after the match ends. Counting during the match would mean reading the game's memory or its screen, which LootLedger doesn't do.
+
+### Teammates
+
 **Teammates** only includes chests your replay recorded. Fortnite records what happens near you, so a teammate looting far away won't appear. Chests that were already open when your game first saw them count in match totals but aren't credited to anyone.
+
+### Your data
 
 Fortnite keeps only about your 100 most recent replays. LootLedger keeps every count once it has read a replay. Your data lives in `%LOCALAPPDATA%\LootLedger`.
 
@@ -111,13 +134,13 @@ Pushing a `v*` tag runs `.github/workflows/release.yml`. It checks formatting, l
   - `container.rs`: replay file format (header, chunks, decryption, Oodle).
   - `replay.rs` and `bits.rs`: the Unreal replay decoder and chest attribution.
   - `store.rs`: the SQLite ledger.
-  - `stats.rs`: statistics.
+  - `stats.rs`: statistics and sessions.
 - `crates/app` is the [Slint](https://slint.dev) app:
   - `ui/*.slint`: the interface, with all colours and sizes in `tokens.slint`.
   - `main.rs`: wiring.
-  - `cards.rs`: dashboard cards.
+  - `cards.rs`: dashboard cards, including the session overview.
   - `pages.rs`: list pages.
-  - `live.rs`: live match.
+  - `live.rs`: live match tracking and replay import.
   - `update.rs`: updates.
   - `native.rs`: Win32 window, taskbar icon and hotkeys.
 - `scripts/` holds two helpers:
