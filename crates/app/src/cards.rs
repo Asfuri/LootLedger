@@ -4,7 +4,7 @@
 use crate::prefs::Prefs;
 use crate::theme::Theme;
 use crate::{
-    BarRow, CardData, Cell, ChartPoint, Check, HeatCell, RingData, Slice, TableRow, Trophy,
+    BarRow, CardData, Cell, ChartPoint, Check, Fact, HeatCell, RingData, Slice, TableRow, Trophy,
 };
 use chrono::{Datelike, Duration, Local, NaiveDate};
 use lootledger_core::stats::{self, Grain, MatchRow, Snapshot};
@@ -489,13 +489,17 @@ fn secs(seconds: f64) -> Duration {
     Duration::milliseconds((seconds * 1000.0).round() as i64)
 }
 
-/// "1 win", "2 wins" and so on.
-fn count_of(n: i64, word: &str) -> String {
-    format!("{n} {word}{}", if n == 1 { "" } else { "s" })
+fn fact(value: impl Into<SharedString>, label: &str) -> Fact {
+    Fact {
+        value: value.into(),
+        label: label.into(),
+    }
 }
 
 /// The session overview: your current play session (matches less than 30 minutes apart) or, when you are
-/// not playing, the last one. The dot and its text still say what the game is doing right now.
+/// not playing, the last one. The dot and its text still say what the game is doing right now. Only the
+/// essentials are here (chests, a row of four numbers, the best match and a small chart); the Statistics
+/// and Teammates pages have the rest.
 fn live_card(span: i32, ctx: &Context) -> CardData {
     let mut card = blank("live", "live", span, ctx);
     card.accent = true;
@@ -542,16 +546,14 @@ fn live_card(span: i32, ctx: &Context) -> CardData {
         _ => 0.0,
     };
 
-    let mut lines = Vec::new();
     if rows.is_empty() && !active {
         card.value = s("–");
-        lines.push(cell(
+        card.note = s(
             "Play a match and your session shows up here. Finished matches are added automatically. Fortnite must have Record Replays on.",
-            4,
-        ));
+        );
     } else {
         card.value = s(p.int(chests));
-        let head = if active {
+        card.caption = s(if active {
             "chests this session".to_owned()
         } else {
             let ended = last_end.unwrap_or(now);
@@ -565,104 +567,54 @@ fn live_card(span: i32, ctx: &Context) -> CardData {
                 )
             };
             format!("chests in your last session (ended {when})")
-        };
-        let progress = match (rows.is_empty(), live.state) {
-            (true, "live") => " · first match in progress".to_owned(),
-            (true, _) => " · reading your first match".to_owned(),
-            _ => format!(" · {}", plural(rows.len() as i64, "match")),
-        };
-        lines.push(cell(
-            format!("{head}{progress} · {} in session", p.duration(in_session)),
-            4,
-        ));
-        if !rows.is_empty() {
-            let per_match = chests as f64 / rows.len() as f64;
-            let mut pace = format!("{} chests per match", p.number(per_match, 1));
+        });
+        let mut facts = vec![
+            fact(
+                p.int(rows.len() as i64),
+                if rows.len() == 1 { "match" } else { "matches" },
+            ),
+            fact(p.duration(in_session), "in session"),
+        ];
+        if rows.is_empty() {
+            card.note = s(if live.state == "live" {
+                "Your first match is in progress. It is counted when it ends."
+            } else {
+                "Reading your first match…"
+            });
+        } else {
+            facts.push(fact(
+                p.number(chests as f64 / rows.len() as f64, 1),
+                "chests per match",
+            ));
             if in_matches > 0.0 {
-                pace += &format!(
-                    " · {} per hour · {} in matches",
+                facts.push(fact(
                     p.number(chests as f64 * 3600.0 / in_matches, 0),
-                    p.duration(in_matches)
-                );
+                    "chests per hour",
+                ));
             }
-            lines.push(cell(pace, 4));
         }
-        if rows.len() > 1
-            && let Some(best) = rows
+        card.facts = model(facts);
+        if rows.len() > 1 {
+            if let Some(best) = rows
                 .iter()
                 .copied()
                 .reduce(|a, b| if b.count > a.count { b } else { a })
-        {
-            let place = best
-                .placement
-                .map(|n| format!(" · #{n}"))
-                .unwrap_or_default();
-            lines.push(cell(
-                format!(
+            {
+                let place = best
+                    .placement
+                    .map(|n| format!(" · #{n}"))
+                    .unwrap_or_default();
+                card.note = s(format!(
                     "Best match: {} chests{place} · {}",
                     p.int(best.count),
                     best.mode
-                ),
-                4,
-            ));
-        }
-        let mut types = stats::Counter::default();
-        for row in &rows {
-            for (name, n) in &row.types.items {
-                types.add(name, *n);
+                ));
             }
-        }
-        if types.total() > 0 {
-            let types: Vec<String> = types
-                .most_common()
-                .iter()
-                .map(|(n, c)| format!("{n} {}", p.int(*c)))
-                .collect();
-            lines.push(cell(types.join(" · "), 4));
-        }
-        let mut results = Vec::new();
-        if let Some(best) = rows.iter().filter_map(|r| r.placement).min() {
-            results.push(format!("Best placement #{best}"));
-            let wins = rows.iter().filter(|r| r.placement == Some(1)).count() as i64;
-            if wins > 0 {
-                results.push(count_of(wins, "win"));
-            }
-        }
-        let eliminations: Vec<i64> = rows
-            .iter()
-            .filter_map(|r| r.stats.as_ref()?["eliminations"].as_i64())
-            .collect();
-        if !eliminations.is_empty() {
-            results.push(count_of(eliminations.iter().sum(), "elimination"));
-        }
-        if !results.is_empty() {
-            lines.push(cell(results.join(" · "), 4));
-        }
-        let mut mates: Vec<(String, i64)> = Vec::new();
-        for member in rows
-            .iter()
-            .flat_map(|r| r.squad.iter().flatten())
-            .filter(|m| !m.me && m.total > 0)
-        {
-            match mates.iter_mut().find(|(name, _)| *name == member.name) {
-                Some((_, n)) => *n += member.total,
-                None => mates.push((member.name.clone(), member.total)),
-            }
-        }
-        mates.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
-        if !mates.is_empty() {
-            let top: Vec<String> = mates
-                .iter()
-                .take(3)
-                .map(|(name, n)| format!("{name} {}", p.int(*n)))
-                .collect();
-            lines.push(cell(format!("Teammates: {}", top.join(" · ")), 4));
-        }
-        if rows.len() > 1 {
             let values: Vec<f64> = rows.iter().map(|r| r.count as f64).collect();
             let (line, area) = spark(&values);
             card.spark_line = s(line);
             card.spark_area = s(area);
+            card.spark_label = s("Chests per match");
             card.spark_tips = model(
                 rows.iter()
                     .enumerate()
@@ -687,7 +639,6 @@ fn live_card(span: i32, ctx: &Context) -> CardData {
         card.pop_color = color(rare.map_or(t.color("on_primary_container"), |n| t.type_color(n)));
         card.pop_id = live.pop_id;
     }
-    card.lines = model(lines);
     card
 }
 

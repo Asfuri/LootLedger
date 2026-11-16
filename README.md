@@ -34,14 +34,14 @@ LootLedger never touches the game. It doesn't read game memory, inject anything 
 
 The first card on the Overview page follows the session you are playing right now. A session is a run of matches less than 30 minutes apart. When you stop, the card keeps showing your last session and when it ended.
 
-<img src=".github/readme/session.png" width="732" alt="The Session overview card: chests, time in the session, chests per match and per hour, best match, chest types, results and teammates">
+<img src=".github/readme/session.png" width="732" alt="The Session overview card: chests this session, then matches, time in the session, chests per match and per hour, the best match and a small chart">
 
 - **Chests** opened this session, with a "+N" pop-up for each match as it is counted.
-- **Time:** how long the session has lasted and how much of it was in matches.
-- **Pace:** chests per match and per hour.
-- **Your best match** of the session, the chest types you opened, your best placement, wins and eliminations.
-- **Teammates:** who opened the most chests, and a small chart of chests per match.
+- **Four numbers:** matches played, time in the session, chests per match and chests per hour.
+- **Your best match** of the session and a small chart of chests per match.
 - The dot at the top shows what the game is doing: waiting, live, reading the replay or match counted.
+
+Chest types, placements and teammates for every match are on the Statistics, Matches and Teammates pages.
 
 ### A dashboard you can arrange
 

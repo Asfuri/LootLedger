@@ -37,6 +37,9 @@ What has been checked, and what has not. Earlier history (the Python app and the
   - **Checked:** a unit test builds three matches and checks that a 20-minute gap keeps one session and a 3-hour gap starts a new one. A screenshot of the card from the real ledger (16 matches, 1,317 chests, 6 h 18 m) was checked in the dark and light theme.
   - **Not yet verified:** the card during a live match and just after one (its clock, the "+N" pop and the 30-second refresh while waiting). The session time counts from the first match's start, so lobby time between matches is included.
   - **Note:** the "This session" stat tile and the counter still count chests since LootLedger was opened, which can differ from this card.
+- **Simpler session card (0.8.7):** the 0.8.6 card had six text lines and was hard to read. It now has the chest count, one row of four numbers (matches, time in session, chests per match, chests per hour), a best-match line and a chart. Chest types, results and teammates were removed from it.
+  - **Checked:** screenshots in the dark and light theme from a made-up ledger (active session) and from a copy of the real ledger (last session); the four columns are equal width.
+  - **Not yet checked:** a narrow card (one column wide), where the labels wrap.
 - **Runtime:** the release exe imports only Windows system DLLs (no dynamic CRT, Python, Qt, .NET or WebView).
 - **Taskbar icon (0.8.2):** an off-screen window reported both a large and a small icon through WM_GETICON.
 - **Match pop-up (0.8.3):**

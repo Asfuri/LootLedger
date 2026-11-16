@@ -1964,7 +1964,7 @@ const PAGE_NAMES: [&str; 6] = [
     "Settings",
 ];
 const WHATS_NEW: [&str; 3] = [
-    "The Current match card is now a Session overview: chests, time played, best match, chest types, results and teammates for the session you are playing.",
+    "The Session overview card is simpler and easier to read: your chests, four numbers (matches, time, chests per match and per hour), your best match and a small chart.",
     "A session is a run of matches less than 30 minutes apart. When you are not playing, the card shows your last session.",
     "Your data still never leaves this PC; only the version check and the download go over the internet.",
 ];

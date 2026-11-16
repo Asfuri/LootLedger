@@ -97,7 +97,7 @@ export component CardView inherits Rectangle {
         }
         // ---- Session overview
         if card.kind == "live": VerticalLayout {
-            spacing: Tokens.xs;
+            spacing: Tokens.s;
             HorizontalLayout {
                 spacing: Tokens.s;
                 Pulse { y: (parent.height - 12px) / 2; ink: card.live-dot; pulsing: card.live-pulse; }
@@ -105,8 +105,7 @@ export component CardView inherits Rectangle {
             }
             HorizontalLayout {
                 spacing: Tokens.m;
-                alignment: start;
-                Text { text: card.value; font-size: Tokens.display; font-weight: 600; color: ink; }
+                Text { text: card.value; font-size: Tokens.display; font-weight: 600; color: ink; vertical-alignment: center; }
                 pop := Text {
                     property <int> shown-id: card.pop-id;
                     text: card.pop;
@@ -114,6 +113,7 @@ export component CardView inherits Rectangle {
                     font-weight: 600;
                     color: card.pop-color;
                     opacity: 0;
+                    vertical-alignment: center;
                     changed shown-id => {
                         if Tokens.full-motion { self.opacity = 1; fade.running = true; }
                     }
@@ -124,9 +124,27 @@ export component CardView inherits Rectangle {
                     }
                     animate opacity { duration: 600ms; easing: ease-out; }
                 }
+                Text { text: card.caption; font-size: Tokens.body; color: ink; vertical-alignment: center; wrap: word-wrap; horizontal-stretch: 1; }
             }
-            Lines { lines: card.lines; ink: ink; custom-ink: true; }
-            if card.spark-line != "": Sparkline { line: card.spark-line; area: card.spark-area; tips: card.spark-tips; ink: ink; }
+            if card.facts.length > 0: Rectangle { height: 1px; background: ink.with-alpha(0.25); }
+            if card.facts.length > 0: HorizontalLayout {
+                spacing: Tokens.m;
+                for fact in card.facts: Rectangle {
+                    horizontal-stretch: 1;
+                    preferred-width: 1px; // equal columns, whatever the text
+                    VerticalLayout {
+                        spacing: Tokens.xxs;
+                        Text { text: fact.value; font-size: Tokens.title; font-weight: 600; color: ink; }
+                        Text { text: fact.label; font-size: Tokens.label; color: ink.with-alpha(0.75); wrap: word-wrap; }
+                    }
+                }
+            }
+            if card.note != "": Text { text: card.note; font-size: Tokens.body; color: ink; wrap: word-wrap; }
+            if card.spark-line != "": VerticalLayout {
+                spacing: Tokens.xs;
+                Text { text: card.spark-label; font-size: Tokens.label; color: ink.with-alpha(0.75); }
+                Sparkline { line: card.spark-line; area: card.spark-area; tips: card.spark-tips; ink: ink; }
+            }
             Rectangle { vertical-stretch: 1; }
         }
         // ---- Chests over time
