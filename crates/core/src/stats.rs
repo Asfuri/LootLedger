@@ -821,6 +821,24 @@ pub fn sessions(rows: &[MatchRow]) -> Vec<Session> {
     result
 }
 
+/// The matches of the newest play session, oldest first (a gap over 30 minutes starts a new session, as in
+/// `sessions`). Hand-added corrections have no match and are left out.
+pub fn latest_session(rows: &[MatchRow]) -> Vec<&MatchRow> {
+    let mut order: Vec<&MatchRow> = rows.iter().filter(|r| r.mode != "Manual").collect();
+    order.sort_by_key(|r| r.when);
+    let gap = Duration::minutes(SESSION_GAP_MINUTES);
+    let (mut first, mut end) = (0, None::<DateTime<Local>>);
+    for (i, row) in order.iter().enumerate() {
+        if end.is_some_and(|e| row.when - e > gap) {
+            first = i;
+            end = None;
+        }
+        let finished = row.when + seconds(row.seconds);
+        end = Some(end.map_or(finished, |e| e.max(finished)));
+    }
+    order.split_off(first)
+}
+
 pub struct Goal {
     pub name: &'static str,
     pub target: i64,
@@ -1706,5 +1724,39 @@ mod tests {
         manual.end_utc = Utc.with_ymd_and_hms(2026, 11, 14, 23, 0, 0).unwrap();
         let combined = vec![manual, synced[0].clone()];
         assert!((token_rate_with(&during_ext, &combined) - (2.0 / BASE_TOKEN_DENOM)).abs() < 1e-12);
+    }
+
+    fn played(id: &str, started: DateTime<Local>, seconds: f64, total: i64) -> MatchIn {
+        MatchIn {
+            id: id.into(),
+            started,
+            seconds,
+            total,
+            broken: 0,
+            meta: Some(serde_json::json!({"mode": "Solo"})),
+            note: String::new(),
+            tags: String::new(),
+            favorite: false,
+        }
+    }
+
+    fn newest_session(matches: &[MatchIn]) -> Vec<String> {
+        let snap = compute(&[], matches, at(10, 23, 0), None, true);
+        latest_session(&snap.match_rows)
+            .iter()
+            .map(|r| r.id.clone())
+            .collect()
+    }
+
+    #[test]
+    fn latest_session_is_the_newest_run_without_a_long_gap() {
+        // 10:00-10:20 and 10:40-11:00 are 20 minutes apart (one session); 14:00 starts another.
+        let first = played("a", at(10, 10, 0), 1200.0, 20);
+        let second = played("b", at(10, 10, 40), 1200.0, 30);
+        let later = played("c", at(10, 14, 0), 900.0, 10);
+        assert_eq!(newest_session(std::slice::from_ref(&later)), ["c"]);
+        assert_eq!(newest_session(&[first.clone(), second.clone()]), ["a", "b"]);
+        assert_eq!(newest_session(&[first, second, later]), ["c"]);
+        assert!(newest_session(&[]).is_empty());
     }
 }

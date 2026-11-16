@@ -9,6 +9,7 @@ export struct HeatCell { alpha: float, tip: string }
 export struct Check { ok: bool, title: string, fix: string }
 export struct RingData { share: float, text: string, caption: string, path: string }
 export struct Trophy { title: string, detail: string, unlocked: bool }
+export struct Fact { value: string, label: string }
 export struct Mark { x: float, color: color, tip: string }
 
 export struct CardData {
@@ -50,16 +51,14 @@ export struct CardData {
     rings: [RingData],
     trophies: [Trophy],
     dates: [string],
-    // Live match
+    // Session overview
     live-dot: color,
     live-pulse: bool,
     pop: string,
     pop-color: color,
     pop-id: int,
-    marks: [Mark],
-    saved: float,
-    show-timeline: bool,
-    timeline-end: string,
+    facts: [Fact],
+    spark-label: string,
 }
 
 export struct DashRow { cards: [CardData], free: int, first: int }

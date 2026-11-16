@@ -180,9 +180,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let live_timer = Timer::default();
     let clock_timer = Timer::default();
     apply_timers(&scan_timer, &live_timer);
-    // Elapsed time on the live card: once a second, only while a match is live.
-    clock_timer.start(TimerMode::Repeated, Duration::from_secs(1), || {
-        if with_app(|a| a.tracker.state == live::State::Live).unwrap_or(false) {
+    // The session card shows the match clock (once a second while a match is live) and the session time
+    // (every 30 s otherwise).
+    let ticks = std::cell::Cell::new(0u32);
+    clock_timer.start(TimerMode::Repeated, Duration::from_secs(1), move || {
+        ticks.set(ticks.get().wrapping_add(1));
+        let live = with_app(|a| a.tracker.state == live::State::Live).unwrap_or(false);
+        if live || ticks.get().is_multiple_of(30) {
             refresh_live();
         }
     });
@@ -1048,15 +1052,6 @@ fn live_view(app: &App) -> cards::LiveView {
         .ended_id
         .as_ref()
         .and_then(|id| snap?.match_rows.iter().find(|r| &r.id == id).cloned());
-    let marks = ended
-        .as_ref()
-        .and_then(|row| {
-            app.store
-                .as_ref()?
-                .match_marks(&row.id, app.config.count_broken())
-                .ok()
-        })
-        .unwrap_or_default();
     let live_count = app
         .live_replay
         .as_ref()
@@ -1072,11 +1067,9 @@ fn live_view(app: &App) -> cards::LiveView {
     cards::LiveView {
         state: state_name(app.tracker.state),
         elapsed: app.tracker.elapsed(),
-        recorded: app.tracker.recorded(),
         locked: app.tracker.locked(),
         live_count,
         ended,
-        marks,
         pop_id: app.pop_id,
     }
 }
@@ -2084,8 +2077,8 @@ const PAGE_NAMES: [&str; 6] = [
     "Settings",
 ];
 const WHATS_NEW: [&str; 3] = [
-    "Fixed replay reading getting stuck: one unusual replay could freeze it, so no new matches were counted.",
-    "A replay that still can't be read is now given up on after 90 seconds, so it can't block the others.",
+    "The Session overview card is simpler and easier to read: your chests, four numbers (matches, time, chests per match and per hour), your best match and a small chart.",
+    "A session is a run of matches less than 30 minutes apart. When you are not playing, the card shows your last session.",
     "Your data still never leaves this PC; only the version check and the download go over the internet.",
 ];
 

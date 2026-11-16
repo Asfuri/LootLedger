@@ -4,7 +4,7 @@
 use crate::prefs::Prefs;
 use crate::theme::Theme;
 use crate::{
-    BarRow, CardData, Cell, ChartPoint, Check, HeatCell, Mark, RingData, Slice, TableRow, Trophy,
+    BarRow, CardData, Cell, ChartPoint, Check, Fact, HeatCell, RingData, Slice, TableRow, Trophy,
 };
 use chrono::{Datelike, Duration, Local, NaiveDate};
 use lootledger_core::stats::{self, Grain, MatchRow, Snapshot};
@@ -58,7 +58,7 @@ pub const STAT_TITLES: &[(&str, &str, &str)] = &[
     ("token", "Token chance", "military_tech"),
 ];
 pub const TITLES: &[(&str, &str, &str)] = &[
-    ("live", "Current match", "sports_esports"),
+    ("live", "Session overview", "play_circle"),
     ("trend", "Chests over time", "trending_up"),
     ("token", "Token drop chance", "military_tech"),
     ("types", "By chest type", "category"),
@@ -127,11 +127,9 @@ pub struct Context<'a> {
 pub struct LiveView {
     pub state: &'static str,
     pub elapsed: Option<f64>,
-    pub recorded: f64,
     pub locked: bool,
     pub live_count: Option<(i64, String)>,
     pub ended: Option<MatchRow>,
-    pub marks: Vec<(f64, String, String)>,
     pub pop_id: i32,
 }
 
@@ -539,50 +537,23 @@ fn stat_card(key: &str, span: i32, ctx: &Context) -> CardData {
     card
 }
 
-fn match_lines(row: &MatchRow, p: &Prefs) -> (String, String) {
-    let minutes = row.seconds / 60.0;
-    let pace = if minutes > 0.0 {
-        format!(" · {} per minute", p.number(row.count as f64 / minutes, 1))
-    } else {
-        String::new()
-    };
-    let head = format!(
-        "{} · {} searched · {} broken open{pace}",
-        row.mode,
-        p.int(row.count - row.broken),
-        p.int(row.broken)
-    );
-    let types = row
-        .types
-        .most_common()
-        .iter()
-        .map(|(n, c)| format!("{n} {}", p.int(*c)))
-        .collect::<Vec<_>>()
-        .join(" · ");
-    let mates: Vec<String> = row
-        .squad
-        .iter()
-        .flatten()
-        .filter(|m| !m.me && m.total > 0)
-        .map(|m| format!("{} {}", m.name, p.int(m.total)))
-        .collect();
-    let team = if mates.is_empty() {
-        String::new()
-    } else {
-        format!("Teammates: {}", mates.join(" · "))
-    };
-    (
-        head,
-        [types, team]
-            .into_iter()
-            .filter(|t| !t.is_empty())
-            .collect::<Vec<_>>()
-            .join("\n"),
-    )
-}
-
 const RARITY: [&str; 3] = ["Relic chest", "Buried chest", "Rare chest"];
 
+fn secs(seconds: f64) -> Duration {
+    Duration::milliseconds((seconds * 1000.0).round() as i64)
+}
+
+fn fact(value: impl Into<SharedString>, label: &str) -> Fact {
+    Fact {
+        value: value.into(),
+        label: label.into(),
+    }
+}
+
+/// The session overview: your current play session (matches less than 30 minutes apart) or, when you are
+/// not playing, the last one. The dot and its text still say what the game is doing right now. Only the
+/// essentials are here (chests, a row of four numbers, the best match and a small chart); the Statistics
+/// and Teammates pages have the rest.
 fn live_card(span: i32, ctx: &Context) -> CardData {
     let mut card = blank("live", "live", span, ctx);
     card.accent = true;
@@ -602,78 +573,126 @@ fn live_card(span: i32, ctx: &Context) -> CardData {
         text += &format!(" · {}", clock(e));
     }
     card.detail = s(text);
-    card.show_timeline = matches!(live.state, "live" | "ended");
-    let mut lines = Vec::new();
-    match (live.state, &live.ended) {
-        ("live", _) if live.live_count.is_some() && !live.locked => {
-            let (count, mode) = live.live_count.clone().unwrap_or_default();
-            card.value = s(p.int(count));
-            lines.push(cell(
-                format!("{mode} · updates every ~20 s, when Fortnite saves the replay"),
-                4,
-            ));
-            card.timeline_end = s(clock(live.recorded.max(1.0)));
-        }
-        ("live", _) => {
-            card.value = s("…");
-            lines.push(cell(
-                "Chests appear when the match ends. Fortnite encrypts the replay while it records.",
-                4,
-            ));
-            lines.push(cell(
+
+    let now = Local::now();
+    let in_game = matches!(live.state, "live" | "saving");
+    let mut rows = stats::latest_session(&ctx.snap.match_rows);
+    let last_end = rows.last().map(|r| r.when + secs(r.seconds));
+    let recent = last_end.is_some_and(|e| now - e <= Duration::minutes(stats::SESSION_GAP_MINUTES));
+    if in_game && !recent {
+        rows.clear(); // the match in progress starts a new session
+    }
+    let active = in_game || (recent && matches!(live.state, "waiting" | "ended"));
+    let playing = match (live.state, live.elapsed) {
+        ("live", Some(e)) => e,
+        _ => 0.0,
+    };
+
+    let chests: i64 = rows.iter().map(|r| r.count).sum();
+    let in_matches: f64 = rows.iter().map(|r| r.seconds).sum();
+    let start = rows
+        .first()
+        .map(|r| r.when)
+        .or_else(|| active.then(|| now - secs(playing)));
+    let end = if active { Some(now) } else { last_end };
+    let in_session = match (start, end) {
+        (Some(a), Some(b)) => ((b - a).num_milliseconds() as f64 / 1000.0).max(in_matches),
+        _ => 0.0,
+    };
+
+    if rows.is_empty() && !active {
+        card.value = s("–");
+        card.note = s(
+            "Play a match and your session shows up here. Finished matches are added automatically. Fortnite must have Record Replays on.",
+        );
+    } else {
+        card.value = s(p.int(chests));
+        card.caption = s(if active {
+            "chests this session".to_owned()
+        } else {
+            let ended = last_end.unwrap_or(now);
+            let when = if ended.date_naive() == now.date_naive() {
+                p.clock_time(ended)
+            } else {
                 format!(
-                    "Replay saved up to {} · Fortnite saves about every 20 s",
-                    clock(live.recorded)
-                ),
-                4,
+                    "{} {}",
+                    p.short_date(ended.date_naive()),
+                    p.clock_time(ended)
+                )
+            };
+            format!("chests in your last session (ended {when})")
+        });
+        let mut facts = vec![
+            fact(
+                p.int(rows.len() as i64),
+                if rows.len() == 1 { "match" } else { "matches" },
+            ),
+            fact(p.duration(in_session), "in session"),
+        ];
+        if rows.is_empty() {
+            card.note = s(if live.state == "live" {
+                "Your first match is in progress. It is counted when it ends."
+            } else {
+                "Reading your first match…"
+            });
+        } else {
+            facts.push(fact(
+                p.number(chests as f64 / rows.len() as f64, 1),
+                "chests per match",
             ));
-            let span = live.elapsed.unwrap_or(0.0).max(live.recorded).max(1.0);
-            card.saved = (live.recorded / span) as f32;
-            card.timeline_end = s(clock(span));
-        }
-        ("ended", Some(row)) => {
-            card.value = s(p.int(row.count));
-            let (head, detail) = match_lines(row, p);
-            lines.push(cell(head, 4));
-            if !detail.is_empty() {
-                lines.push(cell(detail, 4));
+            if in_matches > 0.0 {
+                facts.push(fact(
+                    p.number(chests as f64 * 3600.0 / in_matches, 0),
+                    "chests per hour",
+                ));
             }
-            let length = row.seconds.max(1.0);
-            card.marks = model(
-                live.marks
-                    .iter()
-                    .map(|(time, kind, source)| Mark {
-                        x: (time / length).clamp(0.0, 1.0) as f32,
-                        color: color(t.type_color(kind)),
-                        tip: s(format!(
-                            "{} · {kind}{}",
-                            clock(*time),
-                            if source == "replay-broken" {
-                                " · broken open"
-                            } else {
-                                ""
-                            }
-                        )),
-                    })
-                    .collect(),
-            );
-            card.saved = -1.0;
-            card.timeline_end = s(clock(row.seconds));
-            let rare = RARITY.iter().find(|n| row.types.get(n) > 0);
-            card.pop = s(format!("+{}", row.count));
-            card.pop_color =
-                color(rare.map_or(t.color("on_primary_container"), |n| t.type_color(n)));
-            card.pop_id = live.pop_id;
         }
-        _ => {
-            card.value = s(if live.state == "saving" { "…" } else { "–" });
-            lines.push(cell(
-                if live.state == "saving" { "Reading the finished replay." } else { "Finished matches are added automatically. Fortnite must have Record Replays on." },
-                4,
-            ));
+        card.facts = model(facts);
+        if rows.len() > 1 {
+            if let Some(best) = rows
+                .iter()
+                .copied()
+                .reduce(|a, b| if b.count > a.count { b } else { a })
+            {
+                let place = best
+                    .placement
+                    .map(|n| format!(" · #{n}"))
+                    .unwrap_or_default();
+                card.note = s(format!(
+                    "Best match: {} chests{place} · {}",
+                    p.int(best.count),
+                    best.mode
+                ));
+            }
+            let values: Vec<f64> = rows.iter().map(|r| r.count as f64).collect();
+            let (line, area) = spark(&values);
+            card.spark_line = s(line);
+            card.spark_area = s(area);
+            card.spark_label = s("Chests per match");
+            card.spark_tips = model(
+                rows.iter()
+                    .enumerate()
+                    .map(|(i, r)| {
+                        s(format!(
+                            "Match {} · {} · {} chests",
+                            i + 1,
+                            r.mode,
+                            p.int(r.count)
+                        ))
+                    })
+                    .collect::<Vec<_>>(),
+            );
         }
     }
-    card.lines = model(lines);
+    // The chest count of the match that was just counted pops up beside the session total.
+    if live.state == "ended"
+        && let Some(row) = &live.ended
+    {
+        let rare = RARITY.iter().find(|n| row.types.get(n) > 0);
+        card.pop = s(format!("+{}", row.count));
+        card.pop_color = color(rare.map_or(t.color("on_primary_container"), |n| t.type_color(n)));
+        card.pop_id = live.pop_id;
+    }
     card
 }
 
