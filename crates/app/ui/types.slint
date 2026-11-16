@@ -50,16 +50,12 @@ export struct CardData {
     rings: [RingData],
     trophies: [Trophy],
     dates: [string],
-    // Live match
+    // Session overview
     live-dot: color,
     live-pulse: bool,
     pop: string,
     pop-color: color,
     pop-id: int,
-    marks: [Mark],
-    saved: float,
-    show-timeline: bool,
-    timeline-end: string,
 }
 
 export struct DashRow { cards: [CardData], free: int, first: int }

@@ -154,10 +154,6 @@ impl Tracker {
             .map(|s| now() - s)
     }
 
-    pub fn recorded(&self) -> f64 {
-        self.facts.map_or(0.0, |f| f.recorded)
-    }
-
     pub fn locked(&self) -> bool {
         self.facts.is_some_and(|f| f.locked)
     }

@@ -95,7 +95,7 @@ export component CardView inherits Rectangle {
             Rectangle { vertical-stretch: 1; }
             if card.spark-line != "": Sparkline { line: card.spark-line; area: card.spark-area; tips: card.spark-tips; }
         }
-        // ---- Current match
+        // ---- Session overview
         if card.kind == "live": VerticalLayout {
             spacing: Tokens.xs;
             HorizontalLayout {
@@ -126,7 +126,7 @@ export component CardView inherits Rectangle {
                 }
             }
             Lines { lines: card.lines; ink: ink; custom-ink: true; }
-            if card.show-timeline: Timeline { marks: card.marks; saved: card.saved; end: card.timeline-end; ink: ink; }
+            if card.spark-line != "": Sparkline { line: card.spark-line; area: card.spark-area; tips: card.spark-tips; ink: ink; }
             Rectangle { vertical-stretch: 1; }
         }
         // ---- Chests over time
