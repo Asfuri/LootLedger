@@ -161,6 +161,7 @@ prefs! {
     auto_treasure_hours: bool = true,
     discord_rpc: bool = false,
     discord_app_id: String = String::new(),
+    discord_only_in_game: bool = true,
 }
 
 /// Allowed values of the choice fields.
@@ -201,6 +202,11 @@ fn int_range(name: &str) -> Option<(i64, i64)> {
 
 pub fn valid_hex(text: &str) -> bool {
     text.len() == 7 && text.starts_with('#') && text[1..].chars().all(|c| c.is_ascii_hexdigit())
+}
+
+pub fn valid_discord_app_id(text: &str) -> bool {
+    let s = text.trim();
+    !s.is_empty() && (17..=22).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_digit())
 }
 
 /// Each field type knows how to take a JSON value; a wrong type or invalid value keeps the default.

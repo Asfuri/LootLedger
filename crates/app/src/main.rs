@@ -62,7 +62,8 @@ struct App {
     hotkeys_busy: Vec<String>,
     treasure: lootledger_core::stats::TreasureStore,
     treasure_hours: Vec<lootledger_core::stats::TreasureWindow>,
-    discord: discord::DiscordClient,
+    discord: discord::Client,
+    discord_status: String,
 }
 
 /// What the statistics depend on: the ledger version, whether broken-open chests count, and today's date.
@@ -130,6 +131,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let default_trend = (prefs.default_range, Grain::Day);
     let treasure = lootledger_core::stats::TreasureStore::read(&folder.join("treasure-hours.json"));
     let treasure_hours = treasure.all_windows();
+    let discord = discord::Client::new(|status| {
+        let _ = slint::invoke_from_event_loop(move || {
+            with_app(|a| a.discord_status = status.clone());
+            if let Some(ui) = window() {
+                ui.global::<Settings>().set_discord_status(status.into());
+            }
+        });
+    });
     let app = App {
         ui: ui.as_weak(),
         folder: folder.clone(),
@@ -162,7 +171,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         hotkeys_busy: Vec::new(),
         treasure,
         treasure_hours,
-        discord: discord::DiscordClient::new(),
+        discord,
+        discord_status: String::new(),
     };
     let app = Rc::new(RefCell::new(app));
     APP.with(|a| *a.borrow_mut() = Some(app.clone()));
@@ -191,6 +201,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let live = with_app(|a| a.tracker.state == live::State::Live).unwrap_or(false);
         if live || ticks.get().is_multiple_of(30) {
             refresh_live();
+        }
+        if ticks.get().is_multiple_of(30) {
+            refresh_discord();
         }
     });
     let timers = Rc::new((scan_timer, live_timer));
@@ -234,6 +247,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let _snapper = snap_dir.map(|dir| snapshots(&ui, dir));
     ui.run()?;
+    with_app(|a| a.discord.shutdown());
     if !std::env::args().any(|a| a.starts_with("--snap=")) {
         save_geometry(&ui);
         install_update(false);
@@ -676,6 +690,8 @@ fn fill_settings() {
         s.set_auto_update(p.auto_update);
         s.set_discord_rpc(p.discord_rpc);
         s.set_discord_app_id(p.discord_app_id.clone().into());
+        s.set_discord_only_in_game(p.discord_only_in_game);
+        s.set_discord_status(app.discord_status.clone().into());
     });
 }
 
@@ -738,6 +754,7 @@ fn set_setting(name: &str, value: &str) {
         | "auto_update"
         | "auto_treasure_hours"
         | "discord_rpc"
+        | "discord_only_in_game"
         | "time_24h"
         | "live_tracking"
         | "overlay"
@@ -749,12 +766,34 @@ fn set_setting(name: &str, value: &str) {
         "overlay_opacity" | "volume" | "goal_daily" | "goal_weekly" => {
             Some((name, json!(value.parse::<i64>().unwrap_or(0))))
         }
-        "hotkey_overlay" | "discord_app_id" => Some((name, json!(value.trim()))),
+        "hotkey_overlay" => Some(("hotkey_overlay", json!(value.trim()))),
+        "discord_app_id" => {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() && !prefs::valid_discord_app_id(trimmed) {
+                snack("Discord Application ID must be 17–22 digits");
+            }
+            Some(("discord_app_id", json!(trimmed)))
+        }
         _ => None,
     };
     if let Some((key, v)) = pref {
+        let pending_app_id = if matches!(key, "discord_rpc" | "discord_only_in_game") {
+            window().map(|ui| {
+                ui.global::<Settings>()
+                    .get_discord_app_id()
+                    .trim()
+                    .to_owned()
+            })
+        } else {
+            None
+        };
         with_app(|app| {
             app.prefs.set(key, &v);
+            if let Some(id) = pending_app_id
+                && id != app.prefs.discord_app_id
+            {
+                app.prefs.discord_app_id = id;
+            }
             report(app.prefs.save(&app.folder.join("ui-settings.json")));
         });
         if key.starts_with("overlay") {
@@ -763,7 +802,7 @@ fn set_setting(name: &str, value: &str) {
         if key == "hotkey_overlay" {
             configure_hotkeys();
         }
-        if key == "discord_rpc" || key == "discord_app_id" {
+        if key.starts_with("discord_") || key == "separators" {
             refresh_discord();
         }
         if key == "default_range" {
@@ -1030,18 +1069,24 @@ fn match_counted() -> bool {
 }
 
 fn poll_live() {
-    let (before, after) = with_app(|app| {
+    let (before, after, was_running, now_running) = with_app(|app| {
         let before = app.tracker.state;
+        let was_running = app.tracker.game_running();
         let folder = app.config.replay_folder();
-        (before, app.tracker.poll(&folder))
+        let after = app.tracker.poll(&folder);
+        let now_running = app.tracker.game_running();
+        (before, after, was_running, now_running)
     })
-    .unwrap_or((live::State::Idle, live::State::Idle));
+    .unwrap_or((live::State::Idle, live::State::Idle, false, false));
     if after == live::State::Saving && before != live::State::Saving {
         scan(); // the match just ended: read its replay now instead of at the next check
     }
     if after != before {
         refresh_status();
         refresh_live();
+    }
+    if after != before || was_running != now_running {
+        refresh_discord();
     }
 }
 
@@ -1301,6 +1346,7 @@ fn refresh(force: bool) {
     with_app(|a| a.cards_key = a.snap_key);
     refresh_status();
     refresh_overlay();
+    refresh_discord();
     if changed {
         with_app(|a| a.countups = countups);
         animate_in();
@@ -1595,60 +1641,6 @@ fn refresh_live() {
     });
     refresh_status();
     refresh_overlay();
-    refresh_discord();
-}
-
-/// Updates Discord Rich Presence if enabled and Fortnite is running.
-fn refresh_discord() {
-    with_app(|app| {
-        if !app.prefs.discord_rpc || app.prefs.discord_app_id.trim().is_empty() {
-            app.discord.clear();
-            return;
-        }
-
-        if app.tracker.state == live::State::Idle {
-            app.discord.clear();
-            return;
-        }
-
-        let Some(snap) = app.snap.as_ref() else {
-            return;
-        };
-
-        let p = &app.prefs;
-        let view = live_view(app);
-        let row = view.ended.as_ref().or(snap.last.as_ref());
-        let last_count = row.map_or("0".to_owned(), |r| p.int(r.count));
-        let today_count = p.int(snap.today);
-
-        let summary = lootledger_core::stats::token_summary_with(snap, &app.treasure_hours);
-        let squad_total = p.int(summary.total_chests_squad);
-        let pct = if summary.prob_squad >= 0.01 {
-            format!("{:.1}%", summary.prob_squad * 100.0)
-        } else if summary.prob_squad > 0.0 {
-            format!("{:.2}%", summary.prob_squad * 100.0)
-        } else {
-            "0.0%".into()
-        };
-
-        let details = if app.tracker.state == live::State::Live {
-            format!("Em partida · Hoje: {today_count}")
-        } else {
-            format!("Última: {last_count} · Hoje: {today_count}")
-        };
-        let state = format!("Squad: {squad_total} · Token: {pct}");
-
-        let start_timestamp = if app.tracker.state == live::State::Live {
-            let elapsed_secs = app.tracker.elapsed().unwrap_or(0.0) as i64;
-            let now_unix = chrono::Utc::now().timestamp();
-            Some(now_unix.saturating_sub(elapsed_secs))
-        } else {
-            None
-        };
-
-        app.discord
-            .update(&app.prefs.discord_app_id, details, state, start_timestamp);
-    });
 }
 
 fn refresh_status() {
@@ -1920,6 +1912,7 @@ fn wire(ui: &AppWindow) {
     });
     pg.on_action(|action| page_action(&action));
     ui.on_request_close(|| {
+        with_app(|a| a.discord.shutdown());
         if let Some(ui) = window() {
             save_geometry(&ui);
             let _ = ui.hide();
@@ -2770,6 +2763,60 @@ fn refresh_overlay() {
             w.set_radius(tokens.get_r_lg());
             w.set_pad(tokens.get_m());
         }
+    });
+}
+
+fn refresh_discord() {
+    with_app(|app| {
+        let p = &app.prefs;
+        let enabled = p.discord_rpc;
+        let app_id = p.discord_app_id.trim().to_owned();
+        let in_match = app.tracker.state == live::State::Live;
+        let in_game = app.tracker.game_running();
+
+        let activity = if !enabled
+            || !prefs::valid_discord_app_id(&app_id)
+            || (p.discord_only_in_game && !in_game)
+        {
+            None
+        } else {
+            let (last_match, today, squad_total, token_prob) = match app.snap.as_ref() {
+                Some(snap) => {
+                    let ended = app
+                        .ended_id
+                        .as_ref()
+                        .and_then(|id| snap.match_rows.iter().find(|r| &r.id == id));
+                    let last = ended.or(snap.last.as_ref()).map(|r| r.count);
+                    let summary =
+                        lootledger_core::stats::token_summary_with(snap, &app.treasure_hours);
+                    (
+                        last,
+                        snap.today,
+                        summary.total_chests_squad,
+                        summary.prob_squad,
+                    )
+                }
+                None => (None, 0, 0, 0.0),
+            };
+            Some(discord::format_activity(
+                discord::StatusInput {
+                    in_match,
+                    in_game,
+                    last_match,
+                    today,
+                    squad_total,
+                    token_prob_squad: token_prob,
+                    start_timestamp: app.tracker.started_unix(),
+                },
+                |n| p.int(n),
+            ))
+        };
+
+        app.discord.update(discord::Desired {
+            enabled,
+            app_id,
+            activity,
+        });
     });
 }
 

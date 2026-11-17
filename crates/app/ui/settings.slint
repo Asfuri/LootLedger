@@ -66,7 +66,9 @@ export global Settings {
     in property <string> version;
     in property <bool> auto-update;
     in property <bool> discord-rpc;
-    in property <string> discord-app-id;
+    in-out property <string> discord-app-id;
+    in property <bool> discord-only-in-game;
+    in property <string> discord-status;
     callback set(string, string);
     callback action(string);
     callback add-treasure-hour(string, string, string, string);
@@ -318,6 +320,31 @@ export component SettingsPage inherits VerticalLayout {
         }
     }
     Section {
+        title: "Discord Rich Presence";
+        icon: Icons.sports-esports;
+        Row {
+            name: "Show status on Discord";
+            hint: Settings.discord-status != "" ? Settings.discord-status : "Displays your last match, today, squad total and Token chance on your Discord profile.";
+            Switch { checked: Settings.discord-rpc; label: "Show status on Discord"; toggled(on) => { Settings.set("discord_rpc", on ? "true" : "false"); } }
+        }
+        Row {
+            name: "Discord Application ID";
+            hint: "Create an app at discord.com/developers/applications (its name is what appears after Playing) and paste its Application ID here.";
+            TextField {
+                width: 240px;
+                text <=> Settings.discord-app-id;
+                placeholder: "e.g. 1234567890123456789";
+                label: "Discord Application ID";
+                accepted(text) => { Settings.set("discord_app_id", text); }
+            }
+        }
+        Row {
+            name: "Only while Fortnite is running";
+            hint: "Turn off to show your stats on Discord whenever LootLedger is open.";
+            Switch { checked: Settings.discord-only-in-game; label: "Only while Fortnite is running"; toggled(on) => { Settings.set("discord_only_in_game", on ? "true" : "false"); } }
+        }
+    }
+    Section {
         title: "Goals";
         icon: Icons.flag;
         Row {
@@ -431,35 +458,6 @@ export component SettingsPage inherits VerticalLayout {
                         clicked => { Settings.remove-treasure-hour(item.id); }
                     }
                 }
-            }
-        }
-    }
-    Section {
-        title: "Discord Rich Presence";
-        icon: Icons.sports-esports;
-        Text {
-            text: "Displays your Fortnite chest stats in Discord while you play. Shows your last match and today's total on line 1, and your squad total with token drop chance on line 2. Only active while Fortnite is running.";
-            font-size: Tokens.body;
-            color: Tokens.on-surface-variant;
-            wrap: word-wrap;
-        }
-        Row {
-            name: "Show status in Discord";
-            hint: "Connects to your local Discord app when Fortnite is open";
-            Switch {
-                checked: Settings.discord-rpc;
-                label: "Show status in Discord";
-                toggled(on) => { Settings.set("discord_rpc", on ? "true" : "false"); }
-            }
-        }
-        Row {
-            name: "Discord Application ID";
-            hint: "Your Discord application ID. Create one for free in discord.com/developers/applications (or paste your custom ID)";
-            TextField {
-                width: 200px;
-                text: Settings.discord-app-id;
-                label: "Application ID";
-                accepted(text) => { Settings.set("discord_app_id", text); }
             }
         }
     }

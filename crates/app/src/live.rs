@@ -154,6 +154,19 @@ impl Tracker {
             .map(|s| now() - s)
     }
 
+    pub fn started_unix(&self) -> Option<i64> {
+        (self.state == State::Live)
+            .then_some(self.started?)
+            .map(|s| s.round() as i64)
+    }
+
+    pub fn game_running(&self) -> bool {
+        matches!(self.state, State::Live | State::Saving)
+            || std::fs::metadata(&self.log)
+                .and_then(|m| m.modified())
+                .is_ok_and(|t| now() - seconds(t) < RUNNING)
+    }
+
     pub fn locked(&self) -> bool {
         self.facts.is_some_and(|f| f.locked)
     }
