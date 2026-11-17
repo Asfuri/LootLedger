@@ -54,6 +54,7 @@ pub struct State {
     pub match_ids: Vec<String>,
     pub visible_entries: Vec<usize>,
     pub ranked: Vec<Person>,
+    pub synced_prizes: Vec<lootledger_core::treasure::PrizeDef>,
 }
 
 impl State {
@@ -289,11 +290,17 @@ pub fn matches(
     let selected = rows.iter().find(|r| r.id == st.selected_match);
     g.set_selected_match(s(selected.map_or("", |r| r.id.as_str())));
     if let Some(r) = selected {
-        detail(ui, r, p, t);
+        detail(ui, r, p, t, &st.synced_prizes);
     }
 }
 
-fn detail(ui: &AppWindow, r: &MatchRow, p: &Prefs, t: &Theme) {
+fn detail(
+    ui: &AppWindow,
+    r: &MatchRow,
+    p: &Prefs,
+    t: &Theme,
+    synced_prizes: &[lootledger_core::treasure::PrizeDef],
+) {
     let lang = i18n::from_code(&p.language);
     let g = ui.global::<Pages>();
     g.set_detail_title(s(format!(
@@ -359,6 +366,47 @@ fn detail(ui: &AppWindow, r: &MatchRow, p: &Prefs, t: &Theme) {
             .join(" · ")
     });
     g.set_detail_stats(s(stats));
+    let mut drop_parts: Vec<String> = Vec::new();
+    for d in &r.treasures {
+        drop_parts.push(format!(
+            "{}: {}",
+            lang.t("You", "Você"),
+            lang.treasure_item_name(d, synced_prizes)
+        ));
+    }
+    for d in &r.team_treasures {
+        let who = d
+            .player
+            .as_deref()
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| lang.t("Teammate", "Colega"));
+        drop_parts.push(format!(
+            "{who}: {}",
+            lang.treasure_item_name(d, synced_prizes)
+        ));
+    }
+    for d in &r.seen_prizes {
+        let who = d
+            .player
+            .as_deref()
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| lang.t("Nearby", "Próximo"));
+        drop_parts.push(format!(
+            "{} ({who}): {}",
+            lang.t("Seen", "Visto"),
+            lang.treasure_item_name(d, synced_prizes)
+        ));
+    }
+    let treasures_line = if drop_parts.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "{}{}",
+            lang.t("Treasures: ", "Tesouros: "),
+            drop_parts.join(" · ")
+        )
+    };
+    g.set_detail_treasures(s(treasures_line));
     g.set_detail_tags(s(r.tags.clone()));
     g.set_detail_note(s(r.note.clone()));
     let types = r.types.most_common();

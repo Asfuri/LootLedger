@@ -12,8 +12,9 @@ use crate::bits::{
     BitReader, ByteReader, END_ARRAY, END_BUNCH, END_CONTENT, END_FIELD, Exc, R, Ver, exc, hex,
 };
 use crate::container;
-use crate::model::{Opening, Player, Replay};
+use crate::model::{Opening, Player, Replay, TreasureDrop};
 use crate::tables::{GAME_STATE, PLAYER_PAWN, PLAYER_STATE};
+use crate::treasure;
 use std::collections::{HashMap, HashSet};
 
 const MAX_CHANNELS: usize = 32767;
@@ -40,6 +41,8 @@ pub enum Kind {
     Packed(i32, u32),
     Rotator,
     Name,
+    /// Raw property bytes scanned for ASCII prize identifiers (`DelilahPrize:...` or UUID).
+    RawAscii,
     /// A complex property type: consumed whole, never an error.
     Opaque,
     /// A dynamic array of this element kind (None: an element type the old reader ignores).
@@ -61,7 +64,9 @@ enum Class {
     PlayerPawn,
     AnyPawn,
     Container,
-    /// Registered by the old reader at ParseMode.Normal but irrelevant to chests.
+    TreasureChest,
+    TreasureWeapon,
+    /// Registered by the old reader at ParseMode.Normal (or skipped properties whose ClassNetCache is read).
     Other,
 }
 
@@ -72,6 +77,18 @@ const CONTAINER: &[(&str, Kind)] = &[
     ("SearchingPawn", Kind::Guid),
     ("SearchAnimationCount", Kind::U32),
 ];
+const TREASURE_CHEST: &[(&str, Kind)] = &[
+    ("Instigator", Kind::Guid),
+    ("SourceContainer", Kind::Guid),
+    ("OpeningPawn", Kind::Guid),
+    ("bSuccess", Kind::Bool),
+    ("PrizeTemplateId", Kind::RawAscii),
+];
+const TREASURE_WEAPON: &[(&str, Kind)] = &[
+    ("Instigator", Kind::Guid),
+    ("Owner", Kind::Guid),
+    ("WeaponData", Kind::Guid),
+];
 
 impl Class {
     fn fields(self) -> Option<&'static [(&'static str, Kind)]> {
@@ -81,6 +98,8 @@ impl Class {
             Class::PlayerPawn => Some(PLAYER_PAWN),
             Class::AnyPawn => Some(ANY_PAWN),
             Class::Container => Some(CONTAINER),
+            Class::TreasureChest => Some(TREASURE_CHEST),
+            Class::TreasureWeapon => Some(TREASURE_WEAPON),
             Class::Other => None,
         }
     }
@@ -95,6 +114,9 @@ fn registered(path: &str) -> Option<Class> {
         "/Script/FortniteGame.ActiveGameplayModifier"
         | "/Script/FortniteGame.FortInventory"
         | "/Script/FortniteGame.FortPickupAthena"
+        | "/Script/FortniteGame.FortAbilitySystemComponent"
+        | "/Script/FortniteGame.FortAbilitySystemComponentAthena"
+        | "/Script/GameplayAbilities.AbilitySystemComponent"
         | "/Game/Spectating/BP_ReplayPC_Athena.BP_ReplayPC_Athena_C"
         | "/Game/Athena/SafeZone/SafeZoneIndicator.SafeZoneIndicator_C"
         | "CurrentPlaylistInfo" => Class::Other,
@@ -102,11 +124,19 @@ fn registered(path: &str) -> Option<Class> {
     })
 }
 
-/// ChestReplayReader's fallback regexes: `^[^:]*(?i:chest|ammo|/containers/|booty|lootcannon)[^:]*_C$` and
-/// `^[^:]*(?i:pawn)[^:/]*_C$`.
+/// ChestReplayReader's fallback regexes, plus golden treasure chests and treasure gizmo weapons.
 fn fallback(path: &str) -> Option<Class> {
-    if path.contains(':') || !path.ends_with("_C") {
+    if path.contains(':') {
         return None;
+    }
+    if treasure::is_golden_chest(path) {
+        return Some(Class::TreasureChest);
+    }
+    if !path.ends_with("_C") {
+        return None;
+    }
+    if treasure::is_treasure_weapon_blueprint(path) {
+        return Some(Class::TreasureWeapon);
     }
     let head = path[..path.len() - 2].to_ascii_lowercase();
     if ["chest", "ammo", "/containers/", "booty", "lootcannon"]
@@ -218,8 +248,33 @@ struct Container {
 #[derive(Clone, Default)]
 struct StateInfo {
     epic: Option<String>,
+    bot_id: Option<String>,
     team: Option<i64>,
     bot: Option<bool>,
+}
+
+#[derive(Default)]
+struct GoldenChest {
+    t: Option<f32>,
+    pawn: Option<u32>,
+    instigator: Option<u32>,
+    source_container: Option<u32>,
+    prize_id: Option<String>,
+    success: Option<bool>,
+}
+
+#[derive(Default)]
+struct EquipEntry {
+    t: f32,
+    cls: String,
+    pawn: Option<u32>,
+    weapon_data: Option<u32>,
+}
+
+struct GrantEvent {
+    t: f32,
+    ps_actor: u32,
+    element_id: i32,
 }
 
 /// ChestReplayReader's own state.
@@ -234,6 +289,13 @@ struct Chest {
     session: Option<String>,
     playlist: Option<String>,
     team_size: Option<i64>,
+    treasure_handler_guids: HashMap<u32, String>,
+    first_export: HashMap<String, f32>,
+    golden_chests: Vec<(u32, GoldenChest)>,
+    golden_of: HashMap<u32, usize>,
+    equips: Vec<(u32, EquipEntry)>,
+    equip_of: HashMap<u32, usize>,
+    grants: Vec<GrantEvent>,
 }
 
 struct Values(Vec<(&'static str, Val)>);
@@ -912,8 +974,23 @@ impl Decoder {
                     ar.read_u32()?;
                 }
                 if exporting {
-                    self.guid_paths
-                        .insert(guid, remove_all_path_prefixes(&path).to_owned());
+                    let clean = remove_all_path_prefixes(&path).to_owned();
+                    let lower = clean.to_ascii_lowercase();
+                    if lower.contains("treasurehandler") {
+                        self.chest
+                            .treasure_handler_guids
+                            .insert(guid, clean.clone());
+                        self.chest
+                            .first_export
+                            .entry(clean.clone())
+                            .or_insert(self.frame_time);
+                    } else if clean.starts_with("WID_") && treasure::is_treasure_item(&clean) {
+                        self.chest
+                            .first_export
+                            .entry(clean.clone())
+                            .or_insert(self.frame_time);
+                    }
+                    self.guid_paths.insert(guid, clean);
                 }
             }
         }
@@ -1158,6 +1235,9 @@ impl Decoder {
         if let Some(class) = registered(path) {
             return Some(class);
         }
+        if treasure::is_ability_system_component(path) {
+            return Some(Class::Other);
+        }
         *self
             .resolved
             .entry(path.to_owned())
@@ -1220,8 +1300,8 @@ impl Decoder {
         Ok(true)
     }
 
-    /// Only GameState's CurrentPlaylistInfo custom struct affects the result; the other registered
-    /// ClassNetCache properties are fast arrays whose reads are bounded by the field payload.
+    /// Decodes GameState's CurrentPlaylistInfo and FortAbilitySystemComponent's ActivatableAbilities
+    /// FastArray delta for GA_TreasureHandler_* grants.
     fn class_net_cache_field(
         &mut self,
         ar: &mut BitReader<'_>,
@@ -1229,15 +1309,32 @@ impl Decoder {
         field: Option<(String, bool)>,
         ch: u32,
     ) -> R<()> {
+        let cache_path = &self.groups[cache].path;
+        if cache_path.contains("AbilitySystemComponent") && cache_path.ends_with("_ClassNetCache") {
+            let is_target_field = match &field {
+                None => true,
+                Some((name, false)) => name == "?" || name == "ActivatableAbilities",
+                Some((_, true)) => false,
+            };
+            if is_target_field && !ar.error && !ar.at_end() {
+                let ps_actor = self.actor_of(ch).unwrap_or(0);
+                let _ = Self::read_ability_grants(
+                    ar,
+                    self.frame_time,
+                    ps_actor,
+                    &self.chest.treasure_handler_guids,
+                    &mut self.chest.grants,
+                );
+            }
+            return Ok(());
+        }
         let Some((name, incompatible)) = field else {
             return Ok(());
         };
         if incompatible || ar.error || ar.at_end() {
             return Ok(());
         }
-        if self.groups[cache].path != "Athena_GameState_C_ClassNetCache"
-            || name != "CurrentPlaylistInfo"
-        {
+        if cache_path != "Athena_GameState_C_ClassNetCache" || name != "CurrentPlaylistInfo" {
             return Ok(());
         }
         let bits = ar.bits_left();
@@ -1254,6 +1351,84 @@ impl Decoder {
         }
         if self.actor_of(ch).is_some() && self.chest.playlist.is_none() {
             self.chest.playlist = playlist;
+        }
+        Ok(())
+    }
+
+    fn read_ability_grants(
+        ar: &mut BitReader<'_>,
+        time: f32,
+        ps_actor: u32,
+        handlers: &HashMap<u32, String>,
+        grants: &mut Vec<GrantEvent>,
+    ) -> R<()> {
+        if handlers.is_empty() || ar.bits_left() < 129 {
+            return Ok(());
+        }
+        ar.read_bit(); // bSupportsFastArrayDeltaStructSerialization
+        ar.read_u32()?; // array replication key
+        ar.read_u32()?; // base replication key
+        let deletes = ar.read_u32()?;
+        let changed = ar.read_u32()?;
+        if ar.error || deletes > 512 || changed > 512 {
+            return Ok(());
+        }
+        let skip = deletes as i64 * 32;
+        if !ar.can_read(skip) {
+            return Ok(());
+        }
+        ar.skip_bits(skip);
+        for _ in 0..changed {
+            let element_id = ar.read_i32()?;
+            if ar.error {
+                break;
+            }
+            loop {
+                let handle = ar.read_int_packed()?;
+                if ar.error {
+                    return Ok(());
+                }
+                if handle == 0 {
+                    break;
+                }
+                let num_bits = ar.read_int_packed()?;
+                if ar.error || !ar.can_read(num_bits as i64) {
+                    return Ok(());
+                }
+                let nbits = num_bits as usize;
+                if matches!(nbits, 8 | 16 | 24 | 32 | 40) {
+                    let end_pos = ar.pos + nbits;
+                    let mut guid = 0u32;
+                    let mut shift = 0u32;
+                    while ar.pos + 8 <= end_pos && shift < 35 {
+                        let b = ar.read_bits_to_int(8) as u32;
+                        if ar.error {
+                            return Ok(());
+                        }
+                        guid |= (b >> 1) << shift;
+                        if b & 1 == 0 {
+                            break;
+                        }
+                        shift += 7;
+                    }
+                    if ar.pos < end_pos {
+                        ar.skip_bits((end_pos - ar.pos) as i64);
+                    }
+                    if let Some(_handler) = handlers.get(&guid)
+                        && !grants
+                            .iter()
+                            .any(|g| g.ps_actor == ps_actor && g.element_id == element_id)
+                    {
+                        grants.push(GrantEvent {
+                            t: time,
+                            ps_actor,
+                            element_id,
+                        });
+                    }
+                } else {
+                    ar.skip_bits(num_bits as i64);
+                }
+            }
         }
         Ok(())
     }
@@ -1435,6 +1610,7 @@ impl Decoder {
                         .str("UniqueId")
                         .or_else(|| v.str("UniqueID"))
                         .or(old.epic.take());
+                    old.bot_id = v.str("BotUniqueId").or(old.bot_id.take());
                     old.team = v.int("TeamIndex").or(old.team);
                     old.bot = v.bool("bIsABot").or(old.bot);
                 }
@@ -1451,6 +1627,16 @@ impl Decoder {
             Class::Container => {
                 if let Some(actor) = actor {
                     self.on_container(actor, path, v);
+                }
+            }
+            Class::TreasureChest => {
+                if let Some(actor) = actor {
+                    self.on_treasure_chest(actor, v);
+                }
+            }
+            Class::TreasureWeapon => {
+                if let Some(actor) = actor {
+                    self.on_treasure_weapon(actor, path, v);
                 }
             }
             Class::Other => {}
@@ -1572,6 +1758,66 @@ impl Decoder {
         }
     }
 
+    fn on_treasure_chest(&mut self, actor: u32, v: &Values) {
+        let at = *self.chest.golden_of.entry(actor).or_insert_with(|| {
+            self.chest
+                .golden_chests
+                .push((actor, GoldenChest::default()));
+            self.chest.golden_chests.len() - 1
+        });
+        let g = &mut self.chest.golden_chests[at].1;
+        if let Some(inst) = v.int("Instigator").map(|i| i as u32).filter(|&i| i != 0) {
+            g.instigator = Some(inst);
+        }
+        if let Some(src) = v
+            .int("SourceContainer")
+            .map(|i| i as u32)
+            .filter(|&i| i != 0)
+        {
+            g.source_container = Some(src);
+        }
+        if let Some(pawn) = v.int("OpeningPawn").map(|i| i as u32).filter(|&i| i != 0) {
+            g.pawn = Some(pawn);
+        }
+        if let Some(success) = v.bool("bSuccess") {
+            g.success = Some(success);
+        }
+        if let Some(pid) = v.str("PrizeTemplateId").filter(|s| !s.is_empty()) {
+            g.prize_id = Some(pid);
+            if g.t.is_none() {
+                g.t = Some(self.frame_time);
+            }
+        }
+    }
+
+    fn on_treasure_weapon(&mut self, actor: u32, path: &str, v: &Values) {
+        let at = *self.chest.equip_of.entry(actor).or_insert_with(|| {
+            let cls = path.rsplit(['.', '/']).next().unwrap_or("").to_owned();
+            self.chest.equips.push((
+                actor,
+                EquipEntry {
+                    t: self.frame_time,
+                    cls,
+                    pawn: None,
+                    weapon_data: None,
+                },
+            ));
+            self.chest.equips.len() - 1
+        });
+        let e = &mut self.chest.equips[at].1;
+        let pawn = v
+            .int("Instigator")
+            .or_else(|| v.int("Owner"))
+            .map(|i| i as u32)
+            .filter(|&i| i != 0);
+        if let Some(pawn) = pawn {
+            e.pawn = Some(pawn);
+        }
+        if let Some(wd) = v.int("WeaponData").map(|i| i as u32).filter(|&i| i != 0) {
+            e.weapon_data = Some(wd);
+        }
+    }
+
     fn fill(self, file: &str, outcome: R<()>) -> Replay {
         let ok = outcome.is_ok();
         let info = &self.info;
@@ -1592,6 +1838,10 @@ impl Decoder {
                 .map(|&at| c.states[at].1.clone())
                 .unwrap_or_default()
         };
+        let name_of_state = |s: u32| -> Option<String> {
+            let st = state(s);
+            name_of(st.epic.as_deref()).or_else(|| name_of(st.bot_id.as_deref()))
+        };
         let recorder = c.recorder.or(if ok { b.recorder } else { None });
         let owner = recorder.map(|r| {
             let me = state(r);
@@ -1609,7 +1859,7 @@ impl Decoder {
             }
         });
         let my_team = owner.as_ref().and_then(|o| o.team);
-        let teammates = match my_team {
+        let teammates: Vec<Player> = match my_team {
             Some(team) => c
                 .states
                 .iter()
@@ -1664,6 +1914,264 @@ impl Decoder {
         }
         // The old reader's List.Sort is unstable, so the order of openings with equal times is arbitrary.
         events.sort_by(|a, b| a.t.total_cmp(&b.t));
+
+        let round_t = |t: f32| (t as f64 * 100.0).round_ties_even() / 100.0;
+        let state_actor_of = |id: u32| -> Option<u32> {
+            if let Some(&s) = c.pawn_to_state.get(&id) {
+                Some(s)
+            } else if c.state_of.contains_key(&id) || Some(id) == recorder {
+                Some(id)
+            } else {
+                None
+            }
+        };
+
+        let mut treasures = Vec::new();
+        for (_, g) in &c.golden_chests {
+            if g.success == Some(false) {
+                continue;
+            }
+            let Some(prize_id) = g.prize_id.as_deref() else {
+                continue;
+            };
+            let raw_t = g.t.unwrap_or(0.0);
+            let cont = g
+                .source_container
+                .and_then(|sc| c.container_of.get(&sc).map(|&at| &c.containers[at].1));
+            let container_name = cont.map(|ct| crate::model::classify(&ct.cls).0.to_owned());
+            let destroyed = cont.is_some_and(|ct| {
+                ct.episodes
+                    .iter()
+                    .rev()
+                    .find(|ep| (ep.t - raw_t).abs() <= 6.0)
+                    .is_some_and(|ep| ep.kind == "broken")
+                    || (!ct.searched && ct.destroyed)
+            });
+            let container_pawn = cont.and_then(|ct| {
+                ct.episodes
+                    .iter()
+                    .rev()
+                    .find(|ep| (ep.t - raw_t).abs() <= 6.0)
+                    .and_then(|ep| ep.pawn)
+                    .or(ct.pawn)
+            });
+            let who_actor = g.pawn.or(g.instigator).or(container_pawn);
+            let state_id = who_actor.and_then(state_actor_of);
+            let (by, player, player_id) = match state_id {
+                Some(s) if Some(s) == recorder && recorder.is_some() => (
+                    "me",
+                    owner.as_ref().and_then(|o| o.name.clone()),
+                    owner.as_ref().and_then(|o| o.epic_id.clone()),
+                ),
+                Some(s) => {
+                    let st = state(s);
+                    let pid = st.epic.clone().or(st.bot_id.clone());
+                    let pname = name_of_state(s);
+                    if my_team.is_some() && st.team == my_team {
+                        ("team", pname, pid)
+                    } else {
+                        ("other", pname, pid)
+                    }
+                }
+                None => ("other", None, None),
+            };
+            let resolved = treasure::resolve_prize(prize_id, &[]);
+            let item = resolved
+                .as_ref()
+                .map(|p| p.item.clone())
+                .unwrap_or_else(|| prize_id.to_owned());
+            let kind = resolved
+                .as_ref()
+                .map(|p| p.kind.clone())
+                .unwrap_or_else(|| "other".to_owned());
+            treasures.push(TreasureDrop {
+                t: round_t(raw_t),
+                by: by.to_owned(),
+                source: "golden".to_owned(),
+                prize_id: Some(prize_id.to_owned()),
+                raw_item: prize_id.to_owned(),
+                item,
+                kind,
+                player,
+                player_id,
+                container: container_name,
+                destroyed,
+            });
+        }
+
+        let mut my_grants: Vec<f32> = if let Some(rec) = recorder {
+            c.grants
+                .iter()
+                .filter(|g| g.ps_actor == rec)
+                .map(|g| g.t)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        my_grants.sort_by(f32::total_cmp);
+        if my_grants.is_empty()
+            && recorder.is_some()
+            && let Some((_, &t)) = c
+                .first_export
+                .iter()
+                .filter(|(k, _)| k.to_ascii_lowercase().contains("treasurehandler"))
+                .min_by(|a, b| a.1.total_cmp(b.1))
+        {
+            my_grants.push(t);
+        }
+
+        let resolve_gizmo_for =
+            |target_state: Option<u32>, h: f32, next_h: f32| -> (String, String, &'static str) {
+                if let Some((raw, (_, eng))) = c
+                    .first_export
+                    .iter()
+                    .filter(|(k, t_exp)| k.starts_with("WID_") && (**t_exp - h).abs() <= 1.0)
+                    .filter_map(|(k, t_exp)| treasure::gizmo_item_name(k).map(|g| (k, *t_exp, g)))
+                    .min_by(|a, b| (a.1 - h).abs().total_cmp(&(b.1 - h).abs()))
+                    .map(|(k, _, g)| (k, g))
+                {
+                    return (raw.clone(), eng.to_owned(), "gizmo");
+                }
+                if let Some(ts) = target_state {
+                    let mut unique: Vec<(&'static str, String, &'static str)> = Vec::new();
+                    for (_, eq) in &c.equips {
+                        if eq.t < h || eq.t >= next_h {
+                            continue;
+                        }
+                        if eq.pawn.and_then(state_actor_of) != Some(ts) {
+                            continue;
+                        }
+                        let wid_path = eq.weapon_data.and_then(|wd| self.guid_paths.get(&wd));
+                        let resolved = wid_path
+                            .and_then(|p| treasure::gizmo_item_name(p).map(|g| (p.clone(), g)))
+                            .or_else(|| {
+                                treasure::gizmo_item_name(&eq.cls).map(|g| (eq.cls.clone(), g))
+                            });
+                        if let Some((raw, (id, eng))) = resolved
+                            && !unique.iter().any(|(uid, ..)| *uid == id)
+                        {
+                            unique.push((id, raw, eng));
+                        }
+                    }
+                    if unique.len() == 1 {
+                        return (unique[0].1.clone(), unique[0].2.to_owned(), "gizmo");
+                    }
+                }
+                (String::new(), String::new(), "unknown")
+            };
+
+        for (idx, &h) in my_grants.iter().enumerate() {
+            let next_h = my_grants.get(idx + 1).copied().unwrap_or(f32::MAX);
+            if treasures.iter().any(|d| {
+                d.source == "golden"
+                    && (d.by == "me" || d.by == "team")
+                    && (d.t - h as f64).abs() <= 5.0
+            }) {
+                continue;
+            }
+            let closest = c
+                .containers
+                .iter()
+                .flat_map(|(_, cont)| {
+                    let max_after = if cont.cls.to_ascii_lowercase().contains("buried") {
+                        4.0
+                    } else {
+                        2.0
+                    };
+                    cont.episodes.iter().filter_map(move |ep| {
+                        (ep.t >= h - 3.0 && ep.t <= h + max_after).then_some((cont, ep))
+                    })
+                })
+                .min_by(|(_, a), (_, b)| (a.t - h).abs().total_cmp(&(b.t - h).abs()));
+
+            let closest_state = closest.and_then(|(_, ep)| ep.pawn.and_then(state_actor_of));
+            if closest_state.is_some() && closest_state == recorder {
+                let (cont, ep) = closest.expect("closest episode");
+                let (raw_item, item, kind) = resolve_gizmo_for(recorder, h, next_h);
+                treasures.push(TreasureDrop {
+                    t: round_t(h),
+                    by: "me".to_owned(),
+                    source: "handler".to_owned(),
+                    prize_id: None,
+                    raw_item,
+                    item,
+                    kind: if kind == "unknown" {
+                        "gizmo".to_owned()
+                    } else {
+                        kind.to_owned()
+                    },
+                    player: owner.as_ref().and_then(|o| o.name.clone()),
+                    player_id: owner.as_ref().and_then(|o| o.epic_id.clone()),
+                    container: Some(crate::model::classify(&cont.cls).0.to_owned()),
+                    destroyed: ep.kind == "broken",
+                });
+            } else if !teammates.is_empty() && recorder.is_some() {
+                let mate_state = closest_state.filter(|&s| {
+                    Some(s) != recorder && my_team.is_some() && state(s).team == my_team
+                });
+                if let Some(ms) = mate_state {
+                    let (cont, ep) = closest.expect("closest episode");
+                    let st = state(ms);
+                    let (raw_item, item, kind) = resolve_gizmo_for(Some(ms), h, next_h);
+                    treasures.push(TreasureDrop {
+                        t: round_t(h),
+                        by: "team".to_owned(),
+                        source: "handler".to_owned(),
+                        prize_id: None,
+                        raw_item,
+                        item,
+                        kind: kind.to_owned(),
+                        player: name_of_state(ms),
+                        player_id: st.epic.or(st.bot_id),
+                        container: Some(crate::model::classify(&cont.cls).0.to_owned()),
+                        destroyed: ep.kind == "broken",
+                    });
+                } else {
+                    treasures.push(TreasureDrop {
+                        t: round_t(h),
+                        by: "team".to_owned(),
+                        source: "handler".to_owned(),
+                        prize_id: None,
+                        raw_item: String::new(),
+                        item: String::new(),
+                        kind: "unknown".to_owned(),
+                        player: None,
+                        player_id: None,
+                        container: None,
+                        destroyed: false,
+                    });
+                }
+            } else if teammates.is_empty() && recorder.is_some() {
+                let (raw_item, item, kind) = resolve_gizmo_for(recorder, h, next_h);
+                let unowned_cont = closest.and_then(|(cont, ep)| {
+                    ep.pawn.is_none().then(|| {
+                        (
+                            crate::model::classify(&cont.cls).0.to_owned(),
+                            ep.kind == "broken",
+                        )
+                    })
+                });
+                treasures.push(TreasureDrop {
+                    t: round_t(h),
+                    by: "me".to_owned(),
+                    source: "handler".to_owned(),
+                    prize_id: None,
+                    raw_item,
+                    item,
+                    kind: if kind == "unknown" {
+                        "gizmo".to_owned()
+                    } else {
+                        kind.to_owned()
+                    },
+                    player: owner.as_ref().and_then(|o| o.name.clone()),
+                    player_id: owner.as_ref().and_then(|o| o.epic_id.clone()),
+                    container: unowned_cont.as_ref().map(|(c, _)| c.clone()),
+                    destroyed: unowned_cont.is_some_and(|(_, d)| d),
+                });
+            }
+        }
+        treasures.sort_by(|a, b| a.t.total_cmp(&b.t));
+
         let positive = |v: Option<u32>| v.filter(|&v| v > 0).map(i64::from);
         Replay {
             file: file.to_owned(),
@@ -1689,6 +2197,7 @@ impl Decoder {
             owner,
             teammates,
             events,
+            treasures,
             error: outcome.err().map(|e| e.0),
         }
     }
@@ -1716,6 +2225,14 @@ fn read_kind(cmd: &mut BitReader<'_>, group: &Group, kind: &Kind) -> R<Option<Va
         Kind::NetId => Val::Str(net_id(cmd)?),
         Kind::Guid => Val::Int(cmd.read_int_packed()? as i64),
         Kind::Enum => Val::Int(cmd.read_bits_to_int(cmd.bits_left()) as i64),
+        Kind::RawAscii => {
+            let bits = cmd.bits_left();
+            let bytes = cmd.read_bits(bits)?;
+            match treasure::extract_prize_id(&bytes) {
+                Some(id) => Val::Str(id),
+                None => Val::Other,
+            }
+        }
         Kind::Skip => {
             cmd.skip_bits(cmd.bits_left());
             return Ok(None);
@@ -1894,5 +2411,221 @@ mod tests {
                 "InvalidReplayException: Replay is marked encrypted but not yet marked as completed!"
             )
         );
+    }
+
+    #[test]
+    fn treasure_fallbacks_prioritize_golden_chests_and_gizmo_weapons() {
+        assert_eq!(
+            fallback(
+                "/Delilah/BGA_DelilahTreasureHuntAnimatedChest.BGA_DelilahTreasureHuntAnimatedChest_C"
+            ),
+            Some(Class::TreasureChest)
+        );
+        assert_eq!(
+            fallback("/Game/Weapons/B_RelicFinder.B_RelicFinder_C"),
+            Some(Class::TreasureWeapon)
+        );
+        assert_eq!(
+            fallback("/Game/Items/B_RelicExtractor_Consumable.B_RelicExtractor_Consumable_C"),
+            None
+        );
+    }
+
+    #[test]
+    fn reads_ability_grants_from_fast_array_delta() {
+        // Construct minimal FastArray delta:
+        // 1 bit flag + u32 key1 + u32 key2 + u32 deletes(0) + u32 changed(1) = 129 bits
+        // then i32 element_id(42), packed handle(1), packed num_bits(8), 8-bit varint guid(77), packed handle(0).
+        // We need 129 bits header + 32 bits element_id + packed fields. Let's encode bit-by-bit cleanly.
+        struct BitW {
+            bytes: Vec<u8>,
+            bit_pos: usize,
+        }
+        impl BitW {
+            fn push_bit(&mut self, b: bool) {
+                let idx = self.bit_pos >> 3;
+                if idx >= self.bytes.len() {
+                    self.bytes.push(0);
+                }
+                if b {
+                    self.bytes[idx] |= 1 << (self.bit_pos & 7);
+                }
+                self.bit_pos += 1;
+            }
+            fn push_bits(&mut self, v: u64, n: usize) {
+                for i in 0..n {
+                    self.push_bit((v >> i) & 1 != 0);
+                }
+            }
+            fn push_packed(&mut self, mut v: u32) {
+                loop {
+                    let mut byte = ((v & 0x7f) << 1) as u8;
+                    v >>= 7;
+                    if v != 0 {
+                        byte |= 1;
+                    }
+                    self.push_bits(byte as u64, 8);
+                    if v == 0 {
+                        break;
+                    }
+                }
+            }
+        }
+        let mut w = BitW {
+            bytes: Vec::new(),
+            bit_pos: 0,
+        };
+        w.push_bit(true); // bSupportsFastArrayDeltaStructSerialization
+        w.push_bits(1, 32); // array rep key
+        w.push_bits(1, 32); // base rep key
+        w.push_bits(0, 32); // deletes
+        w.push_bits(1, 32); // changed
+        w.push_bits(42, 32); // element_id
+        w.push_packed(1); // handle = 1
+        w.push_packed(8); // num_bits = 8
+        w.push_bits(77 << 1, 8); // 7-bit varint guid=77 with stop bit=0
+        w.push_packed(0); // end of element properties
+
+        let mut ar = BitReader::borrowed(&w.bytes, w.bytes.len(), w.bit_pos, Ver::default());
+        let mut handlers = HashMap::new();
+        handlers.insert(77, "GA_TreasureHandler_C".to_owned());
+        let mut grants = Vec::new();
+        Decoder::read_ability_grants(&mut ar, 123.5, 99, &handlers, &mut grants).unwrap();
+        assert_eq!(grants.len(), 1);
+        assert_eq!(grants[0].ps_actor, 99);
+        assert_eq!(grants[0].element_id, 42);
+        assert_eq!(grants[0].t, 123.5);
+    }
+
+    #[test]
+    fn fill_correlates_golden_chests_and_handler_grants() {
+        let mut d = Decoder {
+            info: container::Info {
+                version: 0,
+                length_ms: 120_000,
+                network_version: 0,
+                changelist: 0,
+                friendly_name: String::new(),
+                live: false,
+                timestamp: 0,
+                compressed: false,
+                encrypted: false,
+                key: Vec::new(),
+                chunks_start: 0,
+            },
+            ver: Ver::default(),
+            branch: None,
+            groups: Vec::new(),
+            by_path: HashMap::new(),
+            from_index: HashMap::new(),
+            guid_paths: HashMap::new(),
+            guid_group: HashMap::new(),
+            cleaned: HashMap::new(),
+            failed: HashSet::new(),
+            resolved: HashMap::new(),
+            group_class: HashMap::new(),
+            external: HashMap::new(),
+            channels: Vec::new(),
+            in_packet_id: 0,
+            in_reliable: 0,
+            partial: None,
+            packet_temp: [0; 4],
+            cmd: BitReader::owned(Vec::new(), 0, Ver::default()),
+            frame_time: 0.0,
+            builder: Builder::default(),
+            chest: Chest::default(),
+            started: std::time::Instant::now(),
+            ticks: 0,
+            timed_out: false,
+        };
+        d.builder.players.push(PlayerData {
+            epic: Some("EPIC_ME".into()),
+            bot_id: None,
+            name: Some("PlayerMe".into()),
+            team: Some(1),
+            owner: true,
+        });
+        d.builder.players.push(PlayerData {
+            epic: Some("EPIC_MATE".into()),
+            bot_id: None,
+            name: Some("MateTwo".into()),
+            team: Some(1),
+            owner: false,
+        });
+        d.chest.recorder = Some(10);
+        d.chest.states.push((
+            10,
+            StateInfo {
+                epic: Some("EPIC_ME".into()),
+                bot_id: None,
+                team: Some(1),
+                bot: Some(false),
+            },
+        ));
+        d.chest.state_of.insert(10, 0);
+        d.chest.states.push((
+            20,
+            StateInfo {
+                epic: Some("EPIC_MATE".into()),
+                bot_id: None,
+                team: Some(1),
+                bot: Some(false),
+            },
+        ));
+        d.chest.state_of.insert(20, 1);
+        d.chest.pawn_to_state.insert(100, 10);
+        d.chest.pawn_to_state.insert(200, 20);
+        d.chest.containers.push((
+            300,
+            Container {
+                cls: "Tiered_Chest_Athena_C".into(),
+                pawn: Some(100),
+                animations: 1,
+                current: Some(0),
+                searched: true,
+                destroyed: false,
+                episodes: vec![Episode {
+                    t: 50.0,
+                    kind: "opened",
+                    pawn: Some(100),
+                }],
+            },
+        ));
+        d.chest.container_of.insert(300, 0);
+        d.chest.golden_chests.push((
+            400,
+            GoldenChest {
+                t: Some(15.0),
+                pawn: None,
+                instigator: None,
+                source_container: None,
+                prize_id: Some("DelilahPrize:dpid_item19".into()),
+                success: Some(true),
+            },
+        ));
+        // Handler grant suppressed by nearby golden chest vs real handler grant at 50.2s + out-of-sight grant at 90s
+        d.chest.grants.push(GrantEvent {
+            t: 50.2,
+            ps_actor: 10,
+            element_id: 1,
+        });
+        d.chest.grants.push(GrantEvent {
+            t: 90.0,
+            ps_actor: 10,
+            element_id: 2,
+        });
+        d.chest.first_export.insert("WID_RelicFinder".into(), 50.4);
+
+        let replay = d.fill("test.replay", Ok(()));
+        assert_eq!(replay.treasures.len(), 3);
+        assert_eq!(replay.treasures[0].by, "other");
+        assert_eq!(replay.treasures[0].source, "golden");
+        assert_eq!(replay.treasures[0].item, "Solid Gold Miku");
+        assert_eq!(replay.treasures[1].by, "me");
+        assert_eq!(replay.treasures[1].source, "handler");
+        assert_eq!(replay.treasures[1].item, "Relic Finder");
+        assert_eq!(replay.treasures[1].container.as_deref(), Some("Chest"));
+        assert_eq!(replay.treasures[2].by, "team");
+        assert_eq!(replay.treasures[2].kind, "unknown");
     }
 }

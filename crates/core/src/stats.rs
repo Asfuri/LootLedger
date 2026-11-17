@@ -103,6 +103,9 @@ pub struct MatchRow {
     pub unattributed: i64,
     /// The recorder's match stats (damage, accuracy, materials...), when the replay had them.
     pub stats: Option<Value>,
+    pub treasures: Vec<crate::model::TreasureDrop>,
+    pub team_treasures: Vec<crate::model::TreasureDrop>,
+    pub seen_prizes: Vec<crate::model::TreasureDrop>,
     pub note: String,
     pub tags: String,
     pub favorite: bool,
@@ -681,6 +684,18 @@ pub fn compute(
                 .get("stats")
                 .filter(|s| s.as_object().is_some_and(|o| !o.is_empty()))
                 .cloned(),
+            treasures: meta
+                .get("treasures")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default(),
+            team_treasures: meta
+                .get("team_treasures")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default(),
+            seen_prizes: meta
+                .get("seen_prizes")
+                .and_then(|v| serde_json::from_value(v.clone()).ok())
+                .unwrap_or_default(),
             note: m.note.clone(),
             tags: m.tags.clone(),
             favorite: m.favorite,
@@ -1028,6 +1043,8 @@ pub struct TreasureStore {
     pub synced: Vec<TreasureWindow>,
     #[serde(default)]
     pub custom: Vec<TreasureWindow>,
+    #[serde(default)]
+    pub prizes: Vec<crate::treasure::PrizeDef>,
     #[serde(default)]
     pub last_synced: Option<DateTime<Utc>>,
 }
@@ -1623,6 +1640,9 @@ mod tests {
             squad: None,
             unattributed: 0,
             stats: None,
+            treasures: vec![],
+            team_treasures: vec![],
+            seen_prizes: vec![],
             note: String::new(),
             tags: String::new(),
             favorite: false,

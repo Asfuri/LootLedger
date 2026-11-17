@@ -212,11 +212,11 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    /// Replay files whose match was read before per-player details existed.
+    /// Replay files whose match was read before per-player details, stats, or treasures existed.
     pub fn files_without_players(&self) -> Result<std::collections::HashSet<String>> {
         let mut stmt = self.db.prepare(
             "SELECT r.file FROM replay_files r JOIN match_meta m ON m.match_id=r.match_id
-             WHERE r.status='imported' AND (json_extract(m.meta,'$.players') IS NULL OR json_extract(m.meta,'$.stats') IS NULL)",
+             WHERE r.status='imported' AND (json_extract(m.meta,'$.players') IS NULL OR json_extract(m.meta,'$.stats') IS NULL OR json_extract(m.meta,'$.treasures') IS NULL)",
         )?;
         let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)

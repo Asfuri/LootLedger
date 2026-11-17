@@ -96,6 +96,8 @@ impl Lang {
             "trophies" => self.t("Trophies", "Troféus"),
             "compare" => self.t("Compare periods", "Comparar períodos"),
             "stats" => self.t("Match stats", "Estatísticas de partida"),
+            "treasures" => self.t("Treasure rewards", "Recompensas de tesouro"),
+            "seen_prizes" => self.t("Seen prizes nearby", "Prêmios vistos por perto"),
             _ => "",
         }
     }
@@ -404,6 +406,109 @@ impl Lang {
             "Manual" => "Manual".into(),
             "" => if synced { "Auto" } else { "Manual" }.to_owned(),
             other => other.to_owned(),
+        }
+    }
+
+    pub fn treasure_kind(self, kind: &str) -> &'static str {
+        match kind {
+            "pirate-shop" => self.t("Pirate Shop", "Loja Pirata"),
+            "outfit" => self.t("Outfit", "Traje"),
+            "pickaxe" => self.t("Pickaxe", "Picareta"),
+            "jam" => self.t("Jam Track", "Música"),
+            "loading" => self.t("Loading Screen", "Tela de Carregamento"),
+            "car" => self.t("Car / Decal", "Carro / Decalque"),
+            "gizmo" => self.t("Gizmo", "Dispositivo"),
+            "unknown" => self.t("Unknown", "Desconhecido"),
+            _ => self.t("Other", "Outro"),
+        }
+    }
+
+    pub fn treasure_source(self, source: &str) -> &'static str {
+        match source {
+            "golden" => self.t("Golden Chest", "Baú Dourado"),
+            "handler" => self.t("Treasure Chest", "Baú de Tesouro"),
+            _ => self.t("Other", "Outro"),
+        }
+    }
+
+    pub fn treasure_item_name(
+        self,
+        drop: &lootledger_core::model::TreasureDrop,
+        synced: &[lootledger_core::treasure::PrizeDef],
+    ) -> String {
+        let prize_lookup = drop
+            .prize_id
+            .as_deref()
+            .or((!drop.raw_item.is_empty()).then_some(drop.raw_item.as_str()))
+            .and_then(|id| lootledger_core::treasure::resolve_prize(id, synced));
+
+        if let Some(prize) = prize_lookup {
+            if prize
+                .prize_id
+                .eq_ignore_ascii_case(lootledger_core::treasure::PIRATE_SHOP_PRIZE_ID)
+            {
+                return self
+                    .t("Pirate Shop Access", "Acesso à Loja Pirata")
+                    .to_owned();
+            }
+            if self == Lang::PtBr {
+                return match prize.item.as_str() {
+                    "Week 4 Gold Outfit" => "Traje Dourado (Semana 4)".to_owned(),
+                    "Week 4 Pickaxe or Back Bling" => "Picareta ou Acessório (Semana 4)".to_owned(),
+                    "Week 4 Jam Track" => "Música (Semana 4)".to_owned(),
+                    "Week 4 Loading Screen" => "Tela de Carregamento (Semana 4)".to_owned(),
+                    "Week 4 Vehicle & Decal" => "Veículo e Decalque (Semana 4)".to_owned(),
+                    "Week 5 Gold Outfit" => "Traje Dourado (Semana 5)".to_owned(),
+                    "Week 5 Pickaxe or Back Bling" => "Picareta ou Acessório (Semana 5)".to_owned(),
+                    "Week 5 Jam Track" => "Música (Semana 5)".to_owned(),
+                    "Week 5 Loading Screen" => "Tela de Carregamento (Semana 5)".to_owned(),
+                    "Week 5 Vehicle & Decal" => "Veículo e Decalque (Semana 5)".to_owned(),
+                    _ => prize.item,
+                };
+            }
+            return prize.item;
+        }
+
+        if let Some((canonical_id, eng_name)) =
+            lootledger_core::treasure::gizmo_item_name(&drop.raw_item)
+                .or_else(|| lootledger_core::treasure::gizmo_item_name(&drop.item))
+        {
+            return match canonical_id {
+                "gizmo:relic-extractor" => self
+                    .t("Relic Extractor", "Extrator de Relíquias")
+                    .to_owned(),
+                "gizmo:relic-finder" => self.t("Relic Finder", "Detector de Relíquias").to_owned(),
+                "gizmo:lucky-locator" => self.t("Lucky Locator", "Localizador da Sorte").to_owned(),
+                "gizmo:flame-celeb" => self.t("Flame Flare", "Sinalizador de Chamas").to_owned(),
+                "gizmo:smuggler-key" => self
+                    .t(
+                        "Smuggler Extraction Key",
+                        "Chave de Extração de Contrabandista",
+                    )
+                    .to_owned(),
+                "gizmo:extraction-accelerator" => self
+                    .t("Extraction Accelerator", "Acelerador de Extração")
+                    .to_owned(),
+                "gizmo:pirate-shop" => self.t("Pirate Shop Item", "Item da Loja Pirata").to_owned(),
+                "gizmo:treasure" => self
+                    .t("Treasure Gizmo", "Dispositivo de Tesouro")
+                    .to_owned(),
+                _ => eng_name.to_owned(),
+            };
+        }
+
+        if !drop.item.is_empty() {
+            return drop.item.clone();
+        }
+        if drop.kind == "unknown" {
+            self.t(
+                "Treasure reward (details unavailable)",
+                "Recompensa de tesouro (detalhes indisponíveis)",
+            )
+            .to_owned()
+        } else {
+            self.t("Treasure Gizmo", "Dispositivo de Tesouro")
+                .to_owned()
         }
     }
 }
@@ -1381,5 +1486,36 @@ mod tests {
             Lang::PtBr.achievement("chests-1000", "1,000 chests", "Open 1,000 chests in total");
         assert_eq!(title, "1.000 baús");
         assert_eq!(detail, "Abra 1.000 baús no total");
+    }
+
+    #[test]
+    fn translates_treasure_rewards() {
+        use lootledger_core::model::TreasureDrop;
+        assert_eq!(Lang::PtBr.treasure_kind("pirate-shop"), "Loja Pirata");
+        assert_eq!(Lang::PtBr.treasure_source("golden"), "Baú Dourado");
+        let drop = TreasureDrop {
+            t: 10.0,
+            by: "me".into(),
+            source: "golden".into(),
+            prize_id: Some(lootledger_core::treasure::PIRATE_SHOP_PRIZE_ID.into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            Lang::PtBr.treasure_item_name(&drop, &[]),
+            "Acesso à Loja Pirata"
+        );
+        let gizmo = TreasureDrop {
+            t: 20.0,
+            by: "me".into(),
+            source: "handler".into(),
+            raw_item: "WID_RelicFinder".into(),
+            item: "Relic Finder".into(),
+            kind: "gizmo".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            Lang::PtBr.treasure_item_name(&gizmo, &[]),
+            "Detector de Relíquias"
+        );
     }
 }

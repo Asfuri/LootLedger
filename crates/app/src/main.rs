@@ -1369,6 +1369,7 @@ fn context<'a>(
         trend: app.trend[grid],
         compare: app.compare[grid],
         treasure_hours: &app.treasure_hours,
+        synced_prizes: &app.treasure.prizes,
     }
 }
 
@@ -1507,6 +1508,7 @@ fn fill_pages(ui: &AppWindow) {
             return;
         };
         app.pages.entries = pages::load_entries(store);
+        app.pages.synced_prizes = app.treasure.prizes.clone();
         let Some(snap) = app.snap.as_ref() else {
             return;
         };
@@ -3510,13 +3512,18 @@ fn sync_treasure_hours(manual: bool) {
                 )
                 .to_owned()
             })?;
-            lootledger_core::stats::parse_ledn_treasure_hours(text)
+            let windows = lootledger_core::stats::parse_ledn_treasure_hours(text)?;
+            let prizes = lootledger_core::treasure::parse_ledn_prizes(text).ok();
+            Ok((windows, prizes))
         });
         let _ = slint::invoke_from_event_loop(move || match result {
-            Ok(windows) => {
+            Ok((windows, prizes)) => {
                 let count = windows.len();
                 let saved = with_app(|app| {
                     app.treasure.synced = windows;
+                    if let Some(prizes) = prizes {
+                        app.treasure.prizes = prizes;
+                    }
                     app.treasure.last_synced = Some(chrono::Utc::now());
                     app.treasure_hours = app.treasure.all_windows();
                     app.treasure.save(&app.folder.join("treasure-hours.json"))

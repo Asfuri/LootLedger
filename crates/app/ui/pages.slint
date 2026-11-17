@@ -30,6 +30,7 @@ export global Pages {
     in property <string> detail-title;
     in property <string> detail-sub;
     in property <string> detail-stats;
+    in property <string> detail-treasures;
     in property <bool> detail-favorite;
     in property <string> detail-tags;
     in property <string> detail-note;
@@ -252,6 +253,7 @@ export component MatchesPage inherits VerticalLayout {
                     Text { text: Pages.detail-title; font-size: Tokens.title; font-weight: 600; color: Tokens.on-surface; }
                     Text { text: Pages.detail-sub; font-size: Tokens.body; color: Tokens.on-surface-variant; wrap: word-wrap; }
                     if Pages.detail-stats != "": Text { text: Pages.detail-stats; font-size: Tokens.body; color: Tokens.on-surface; wrap: word-wrap; }
+                    if Pages.detail-treasures != "": Text { text: Pages.detail-treasures; font-size: Tokens.body; color: Tokens.primary; wrap: word-wrap; }
                 }
                 IconButton {
                     icon: Icons.star;

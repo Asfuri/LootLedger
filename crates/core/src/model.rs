@@ -30,6 +30,30 @@ pub struct Opening {
     pub episode: u32,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TreasureDrop {
+    pub t: f64,
+    pub by: String,
+    pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prize_id: Option<String>,
+    #[serde(default)]
+    pub raw_item: String,
+    #[serde(default)]
+    pub item: String,
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub player: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub player_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub container: Option<String>,
+    #[serde(default)]
+    pub destroyed: bool,
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Replay {
@@ -55,6 +79,9 @@ pub struct Replay {
     pub teammates: Vec<Player>,
     #[serde(default)]
     pub events: Vec<Opening>,
+    /// Treasure hunt rewards obtained by you, your team, or seen from nearby players.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub treasures: Vec<TreasureDrop>,
     pub error: Option<String>,
 }
 
@@ -197,6 +224,15 @@ impl Replay {
                 return Err("Invalid replay opening".into());
             }
         }
+        for d in &self.treasures {
+            if !d.t.is_finite()
+                || !(0.0..=u32::MAX as f64 / 1000.0).contains(&d.t)
+                || !["me", "team", "other"].contains(&d.by.as_str())
+                || !["golden", "handler"].contains(&d.source.as_str())
+            {
+                return Err("Invalid treasure drop".into());
+            }
+        }
         Ok(())
     }
     pub fn summarize(&self) -> (Vec<(&Opening, &'static str)>, Value) {
@@ -306,6 +342,12 @@ impl Replay {
                 .then_with(|| total(b).cmp(&total(a)))
                 .then_with(|| a["name"].as_str().cmp(&b["name"].as_str()))
         });
+        let my_treasures: Vec<&TreasureDrop> =
+            self.treasures.iter().filter(|d| d.by == "me").collect();
+        let team_treasures: Vec<&TreasureDrop> =
+            self.treasures.iter().filter(|d| d.by == "team").collect();
+        let seen_prizes: Vec<&TreasureDrop> =
+            self.treasures.iter().filter(|d| d.by == "other").collect();
         let mut meta = json!({
             "file": file_name(&self.file), "playlist": self.playlist, "mode": mode_name(self.playlist.as_deref()),
             "placement": self.placement, "total_players": self.total_players, "eliminations": self.eliminations,
@@ -313,6 +355,7 @@ impl Replay {
             "teammates": self.teammates.iter().filter_map(|p| p.name.as_deref().filter(|s| !s.is_empty())).collect::<Vec<_>>(),
             "containers": containers, "team": team, "team_players": teammates, "complete": self.ok,
             "error": self.error, "branch": self.branch, "players": ordered, "unattributed": unattributed,
+            "treasures": my_treasures, "team_treasures": team_treasures, "seen_prizes": seen_prizes,
         });
         if let Some(stats) = &self.stats {
             meta["stats"] = stats.clone();
@@ -356,5 +399,60 @@ mod tests {
             Uuid::new_v5(&NAMESPACE, r.key().as_bytes()).to_string()
         );
         assert_eq!(mode_name(Some("Playlist_NoBuildBR_Duo")), "Zero Build Duo");
+        assert_eq!(meta["treasures"], json!([]));
+        assert_eq!(meta["team_treasures"], json!([]));
+        assert_eq!(meta["seen_prizes"], json!([]));
+    }
+    #[test]
+    fn summarizes_treasures_by_actor_attribution() {
+        let mut r: Replay =
+            serde_json::from_str(include_str!("../tests/fixtures/replay-squad.json")).unwrap();
+        r.treasures = vec![
+            TreasureDrop {
+                t: 42.5,
+                by: "me".into(),
+                source: "golden".into(),
+                prize_id: Some("DelilahPrize:dpid_item19".into()),
+                raw_item: "DelilahPrize:dpid_item19".into(),
+                item: "Solid Gold Miku".into(),
+                kind: "outfit".into(),
+                player: Some("Me".into()),
+                player_id: Some("epic-1".into()),
+                container: Some("Tiered_Chest_Athena_C".into()),
+                destroyed: false,
+            },
+            TreasureDrop {
+                t: 88.0,
+                by: "team".into(),
+                source: "handler".into(),
+                prize_id: None,
+                raw_item: "GA_TreasureHandler".into(),
+                item: "Team Treasure".into(),
+                kind: "unknown".into(),
+                player: Some("Mate".into()),
+                player_id: None,
+                container: None,
+                destroyed: false,
+            },
+            TreasureDrop {
+                t: 112.0,
+                by: "other".into(),
+                source: "golden".into(),
+                prize_id: Some("9f73f94d-2e61-4523-97d7-d61235d3365e".into()),
+                raw_item: "9f73f94d-2e61-4523-97d7-d61235d3365e".into(),
+                item: "Pirate Shop Access".into(),
+                kind: "pirate-shop".into(),
+                player: Some("Rival".into()),
+                player_id: None,
+                container: Some("Tiered_RareChest_C".into()),
+                destroyed: false,
+            },
+        ];
+        r.validate().unwrap();
+        let (_, meta) = r.summarize();
+        assert_eq!(meta["treasures"].as_array().unwrap().len(), 1);
+        assert_eq!(meta["team_treasures"].as_array().unwrap().len(), 1);
+        assert_eq!(meta["seen_prizes"].as_array().unwrap().len(), 1);
+        assert_eq!(meta["seen_prizes"][0]["player"], "Rival");
     }
 }

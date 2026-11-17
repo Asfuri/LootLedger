@@ -7,3 +7,4 @@ pub mod stats;
 pub mod store;
 mod tables;
 pub mod tail;
+pub mod treasure;

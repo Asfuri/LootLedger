@@ -74,11 +74,15 @@ pub const TITLES: &[(&str, &str, &str)] = &[
     ("trophies", "Trophies", "trophy"),
     ("compare", "Compare periods", "compare_arrows"),
     ("stats", "Match stats", "bar_chart"),
+    ("treasures", "Treasure rewards", "celebration"),
+    ("seen_prizes", "Seen prizes nearby", "visibility"),
 ];
 pub const STATS_ORDER: &[&str] = &[
     "health",
     "trend",
     "token",
+    "treasures",
+    "seen_prizes",
     "types",
     "modes",
     "heat",
@@ -122,6 +126,7 @@ pub struct Context<'a> {
     pub trend: (i64, Grain),
     pub compare: [NaiveDate; 4],
     pub treasure_hours: &'a [stats::TreasureWindow],
+    pub synced_prizes: &'a [lootledger_core::treasure::PrizeDef],
 }
 
 #[derive(Clone, Default)]
@@ -1799,6 +1804,120 @@ fn stats_card(span: i32, ctx: &Context) -> CardData {
     card
 }
 
+fn treasures_card(span: i32, ctx: &Context) -> CardData {
+    let mut card = blank("treasures", "table", span, ctx);
+    let lang = lang_of(ctx);
+    let p = ctx.prefs;
+    let mut entries = Vec::new();
+    let (mut mine, mut team, mut golden) = (0usize, 0usize, 0usize);
+    for r in &ctx.snap.match_rows {
+        for d in &r.treasures {
+            mine += 1;
+            if d.source == "golden" {
+                golden += 1;
+            }
+            entries.push((r.when, true, d));
+        }
+        for d in &r.team_treasures {
+            team += 1;
+            if d.source == "golden" {
+                golden += 1;
+            }
+            entries.push((r.when, false, d));
+        }
+    }
+    if entries.is_empty() {
+        card.note = s(lang.t(
+            "No treasure hunt rewards found yet. Drops from Golden Chests and Delilah gizmos in scanned replays appear here.",
+            "Nenhuma recompensa de tesouro encontrada ainda. Recompensas de Baús Dourados e dispositivos nos replays analisados aparecerão aqui.",
+        ));
+        return card;
+    }
+    let mut rows = vec![row(vec![
+        cell(lang.t("Reward", "Recompensa"), 3),
+        cell(lang.t("Kind", "Tipo"), 3),
+        cell(lang.t("Who", "Quem"), 3),
+        cell(lang.t("When", "Quando"), 3),
+    ])];
+    for (when, is_me, drop) in entries.iter().take(8) {
+        let who = if *is_me {
+            lang.t("You", "Você").to_owned()
+        } else {
+            drop.player
+                .as_deref()
+                .filter(|name| !name.is_empty())
+                .unwrap_or_else(|| lang.t("Teammate", "Colega"))
+                .to_owned()
+        };
+        let item_tone = if drop.source == "golden" { 2 } else { 0 };
+        let kind_text = format!(
+            "{} · {}",
+            lang.treasure_kind(&drop.kind),
+            lang.treasure_source(&drop.source)
+        );
+        rows.push(row(vec![
+            cell(lang.treasure_item_name(drop, ctx.synced_prizes), item_tone),
+            cell(kind_text, 1),
+            cell(who, 1),
+            cell(p.when(*when), 1),
+        ]));
+    }
+    card.table = model(rows);
+    card.note = s(match lang {
+        Lang::En => format!("{mine} for you · {team} for teammates · {golden} golden chest(s)"),
+        Lang::PtBr => {
+            format!("{mine} suas · {team} da equipe · {golden} baú(s) dourado(s)")
+        }
+    });
+    card
+}
+
+fn seen_prizes_card(span: i32, ctx: &Context) -> CardData {
+    let mut card = blank("seen_prizes", "table", span, ctx);
+    let lang = lang_of(ctx);
+    let p = ctx.prefs;
+    let mut entries = Vec::new();
+    for r in &ctx.snap.match_rows {
+        for d in &r.seen_prizes {
+            entries.push((r.when, d));
+        }
+    }
+    if entries.is_empty() {
+        card.note = s(lang.t(
+            "No golden chest prizes seen from other players nearby (~150 m) yet.",
+            "Nenhum prêmio de baú dourado visto de outros jogadores por perto (~150 m) ainda.",
+        ));
+        return card;
+    }
+    let total = entries.len();
+    let mut rows = vec![row(vec![
+        cell(lang.t("Prize", "Prêmio"), 3),
+        cell(lang.t("Kind", "Tipo"), 3),
+        cell(lang.t("Player", "Jogador"), 3),
+        cell(lang.t("When", "Quando"), 3),
+    ])];
+    for (when, drop) in entries.iter().take(8) {
+        let who = drop
+            .player
+            .as_deref()
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| lang.t("Nearby player", "Jogador próximo"))
+            .to_owned();
+        rows.push(row(vec![
+            cell(lang.treasure_item_name(drop, ctx.synced_prizes), 2),
+            cell(lang.treasure_kind(&drop.kind), 1),
+            cell(who, 1),
+            cell(p.when(*when), 1),
+        ]));
+    }
+    card.table = model(rows);
+    card.note = s(match lang {
+        Lang::En => format!("{total} golden chest prize(s) spotted within ~150 m"),
+        Lang::PtBr => format!("{total} prêmio(s) de baú dourado avistado(s) em ~150 m"),
+    });
+    card
+}
+
 pub fn build(id: &str, span: i32, ctx: &Context) -> CardData {
     if let Some(key) = id.strip_prefix("stat:") {
         return stat_card(key, span, ctx);
@@ -1807,6 +1926,8 @@ pub fn build(id: &str, span: i32, ctx: &Context) -> CardData {
         "live" => live_card(span, ctx),
         "trend" => trend_card(span, ctx),
         "token" => token_card(span, ctx),
+        "treasures" => treasures_card(span, ctx),
+        "seen_prizes" => seen_prizes_card(span, ctx),
         "types" => types_card(span, ctx),
         "modes" => modes_card(span, ctx),
         "heat" => heat_card(span, ctx),
