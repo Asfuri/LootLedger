@@ -65,6 +65,8 @@ export global Settings {
     in property <string> data-folder;
     in property <string> version;
     in property <bool> auto-update;
+    in property <bool> discord-rpc;
+    in property <string> discord-app-id;
     callback set(string, string);
     callback action(string);
     callback add-treasure-hour(string, string, string, string);
@@ -429,6 +431,35 @@ export component SettingsPage inherits VerticalLayout {
                         clicked => { Settings.remove-treasure-hour(item.id); }
                     }
                 }
+            }
+        }
+    }
+    Section {
+        title: "Discord Rich Presence";
+        icon: Icons.sports-esports;
+        Text {
+            text: "Displays your Fortnite chest stats in Discord while you play. Shows your last match and today's total on line 1, and your squad total with token drop chance on line 2. Only active while Fortnite is running.";
+            font-size: Tokens.body;
+            color: Tokens.on-surface-variant;
+            wrap: word-wrap;
+        }
+        Row {
+            name: "Show status in Discord";
+            hint: "Connects to your local Discord app when Fortnite is open";
+            Switch {
+                checked: Settings.discord-rpc;
+                label: "Show status in Discord";
+                toggled(on) => { Settings.set("discord_rpc", on ? "true" : "false"); }
+            }
+        }
+        Row {
+            name: "Discord Application ID";
+            hint: "Your Discord application ID. Create one for free in discord.com/developers/applications (or paste your custom ID)";
+            TextField {
+                width: 200px;
+                text: Settings.discord-app-id;
+                label: "Application ID";
+                accepted(text) => { Settings.set("discord_app_id", text); }
             }
         }
     }

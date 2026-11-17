@@ -159,6 +159,8 @@ prefs! {
     show_page_title: bool = false,
     auto_update: bool = true,
     auto_treasure_hours: bool = true,
+    discord_rpc: bool = false,
+    discord_app_id: String = String::new(),
 }
 
 /// Allowed values of the choice fields.

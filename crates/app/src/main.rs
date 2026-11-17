@@ -2,6 +2,7 @@
 
 mod cards;
 mod config;
+mod discord;
 mod icons;
 mod live;
 #[cfg(windows)]
@@ -61,6 +62,7 @@ struct App {
     hotkeys_busy: Vec<String>,
     treasure: lootledger_core::stats::TreasureStore,
     treasure_hours: Vec<lootledger_core::stats::TreasureWindow>,
+    discord: discord::DiscordClient,
 }
 
 /// What the statistics depend on: the ledger version, whether broken-open chests count, and today's date.
@@ -160,6 +162,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         hotkeys_busy: Vec::new(),
         treasure,
         treasure_hours,
+        discord: discord::DiscordClient::new(),
     };
     let app = Rc::new(RefCell::new(app));
     APP.with(|a| *a.borrow_mut() = Some(app.clone()));
@@ -671,6 +674,8 @@ fn fill_settings() {
         s.set_data_folder(app.folder.to_string_lossy().into_owned().into());
         s.set_version(VERSION.into());
         s.set_auto_update(p.auto_update);
+        s.set_discord_rpc(p.discord_rpc);
+        s.set_discord_app_id(p.discord_app_id.clone().into());
     });
 }
 
@@ -732,6 +737,7 @@ fn set_setting(name: &str, value: &str) {
         | "show_page_title"
         | "auto_update"
         | "auto_treasure_hours"
+        | "discord_rpc"
         | "time_24h"
         | "live_tracking"
         | "overlay"
@@ -743,7 +749,7 @@ fn set_setting(name: &str, value: &str) {
         "overlay_opacity" | "volume" | "goal_daily" | "goal_weekly" => {
             Some((name, json!(value.parse::<i64>().unwrap_or(0))))
         }
-        "hotkey_overlay" => Some(("hotkey_overlay", json!(value.trim()))),
+        "hotkey_overlay" | "discord_app_id" => Some((name, json!(value.trim()))),
         _ => None,
     };
     if let Some((key, v)) = pref {
@@ -756,6 +762,9 @@ fn set_setting(name: &str, value: &str) {
         }
         if key == "hotkey_overlay" {
             configure_hotkeys();
+        }
+        if key == "discord_rpc" || key == "discord_app_id" {
+            refresh_discord();
         }
         if key == "default_range" {
             let days = with_app(|a| a.prefs.default_range).unwrap_or(30);
@@ -1586,6 +1595,60 @@ fn refresh_live() {
     });
     refresh_status();
     refresh_overlay();
+    refresh_discord();
+}
+
+/// Updates Discord Rich Presence if enabled and Fortnite is running.
+fn refresh_discord() {
+    with_app(|app| {
+        if !app.prefs.discord_rpc || app.prefs.discord_app_id.trim().is_empty() {
+            app.discord.clear();
+            return;
+        }
+
+        if app.tracker.state == live::State::Idle {
+            app.discord.clear();
+            return;
+        }
+
+        let Some(snap) = app.snap.as_ref() else {
+            return;
+        };
+
+        let p = &app.prefs;
+        let view = live_view(app);
+        let row = view.ended.as_ref().or(snap.last.as_ref());
+        let last_count = row.map_or("0".to_owned(), |r| p.int(r.count));
+        let today_count = p.int(snap.today);
+
+        let summary = lootledger_core::stats::token_summary_with(snap, &app.treasure_hours);
+        let squad_total = p.int(summary.total_chests_squad);
+        let pct = if summary.prob_squad >= 0.01 {
+            format!("{:.1}%", summary.prob_squad * 100.0)
+        } else if summary.prob_squad > 0.0 {
+            format!("{:.2}%", summary.prob_squad * 100.0)
+        } else {
+            "0.0%".into()
+        };
+
+        let details = if app.tracker.state == live::State::Live {
+            format!("Em partida · Hoje: {today_count}")
+        } else {
+            format!("Última: {last_count} · Hoje: {today_count}")
+        };
+        let state = format!("Squad: {squad_total} · Token: {pct}");
+
+        let start_timestamp = if app.tracker.state == live::State::Live {
+            let elapsed_secs = app.tracker.elapsed().unwrap_or(0.0) as i64;
+            let now_unix = chrono::Utc::now().timestamp();
+            Some(now_unix.saturating_sub(elapsed_secs))
+        } else {
+            None
+        };
+
+        app.discord
+            .update(&app.prefs.discord_app_id, details, state, start_timestamp);
+    });
 }
 
 fn refresh_status() {
