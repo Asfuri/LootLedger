@@ -1,0 +1,280 @@
+// Centralized UI strings. Defaults are English; Rust populates every property via `i18n::apply`.
+
+export struct MenuOption {
+    id: string,
+    label: string,
+}
+
+export global I18n {
+    // Shared controls
+    in property <string> clear: "Clear";
+    in property <string> less: "Less";
+    in property <string> presets: "Presets";
+    in property <string> more: "More";
+
+    // Window & navigation
+    in property <string> win-minimize: "Minimize";
+    in property <string> win-restore: "Restore";
+    in property <string> win-maximize: "Maximize";
+    in property <string> win-close: "Close";
+    in property <string> nav-overview: "Overview";
+    in property <string> nav-matches: "Matches";
+    in property <string> nav-openings: "Openings";
+    in property <string> nav-statistics: "Statistics";
+    in property <string> nav-teammates: "Teammates";
+    in property <string> nav-settings: "Settings";
+    in property <string> sub-matches: "Matches read from your replays. Select one to see its breakdown and timeline.";
+    in property <string> sub-openings: "Every chest you opened, newest first. Corrections are recorded and never silently lost.";
+    in property <string> sub-teammates: "Everyone who played with you, merged across matches. Pick someone to see their profile.";
+    in property <string> sub-settings: "Changes apply immediately. Your replays and ledger never leave this PC.";
+
+    // Overview & toolbar actions
+    in property <string> add-widget: "Add widget";
+    in property <string> reset-layout: "Reset layout";
+    in property <string> tip-customize: "Customize the dashboard";
+    in property <string> tip-scan: "Check for new replays now";
+    in property <string> tip-share: "Share a summary image (saved or copied, never uploaded)";
+    in property <string> tip-overlay: "Pop-out counter";
+    in property <string> tip-undo-opening: "Undo the last counted opening";
+    in property <string> tip-export-openings: "Export the openings shown";
+    in property <string> label-add-chest: "Add a manual chest";
+    in property <string> palette-placeholder: "Type a page, match, teammate or setting";
+    in property <string> palette-label: "Command search";
+    in property <string> btn-later: "Later";
+    in property <string> btn-ok: "OK";
+    in property <[MenuOption]> share-options: [
+        { id: "Copy summary image", label: "Copy summary image" },
+        { id: "Save summary image…", label: "Save summary image…" },
+        { id: "Copy weekly recap", label: "Copy weekly recap" },
+        { id: "Save weekly recap…", label: "Save weekly recap…" },
+    ];
+
+    // Charts & dashboard cards
+    in property <string> heat-label: "Chests by weekday and hour";
+    in property <[string]> heat-days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    in property <string> heat-fewer: "Fewer";
+    in property <string> heat-more: "More";
+    in property <[string]> trend-ranges: ["7d", "30d", "90d", "All"];
+    in property <[string]> trend-grains: ["Day", "Week", "Month"];
+    in property <[string]> chart-styles: ["Bar", "Line", "Smooth", "Area"];
+    in property <string> label-date-range: "Date range";
+    in property <string> label-group-by: "Group by";
+    in property <string> label-chart-style: "Chart style";
+    in property <string> status-done: "Done";
+    in property <string> status-attention: "Needs attention";
+    in property <string> trophy-unlocked-a11y: ", unlocked: ";
+    in property <string> trophy-locked-a11y: ", locked: ";
+    in property <string> trophy-unlocked-tip: " · unlocked";
+    in property <string> trophy-locked-tip: " · locked";
+    in property <[string]> compare-periods: ["First", "Second"];
+    in property <string> compare-to: "to";
+    in property <string> compare-from-suffix: " period from";
+    in property <string> compare-to-suffix: " period to";
+    in property <string> tip-move-earlier: "Move earlier";
+    in property <string> tip-move-later: "Move later";
+    in property <string> tip-make-narrow: "Make narrow";
+    in property <string> tip-make-wide: "Make wide";
+    in property <string> tip-remove-widget: "Remove from the dashboard";
+
+    // Matches, Openings & Teammates pages
+    in property <string> sort-by-prefix: "Sort by ";
+    in property <string> matches-search-placeholder: "Search mode, date, tag or note";
+    in property <string> label-game-mode: "Game mode";
+    in property <string> label-chest-type: "Chest type";
+    in property <string> label-min-chests: "Minimum chests";
+    in property <string> any-count: "Any count";
+    in property <string> at-least-prefix: "At least ";
+    in property <string> chip-favorites: "★ Favourites";
+    in property <string> matches-empty: "No matches yet. Turn on Record Replays in Fortnite, finish a match, and it appears here.";
+    in property <[string]> match-headers: ["Date", "Mode", "Place", "Chests", "Broken", "Teammates", "Ammo", "Length"];
+    in property <string> tip-favorite-match: "Favourite match";
+    in property <string> tip-close-details: "Close match details";
+    in property <string> tags-placeholder: "Tags, e.g. ranked, with randoms";
+    in property <string> tags-label: "Match tags";
+    in property <string> note-placeholder: "Note";
+    in property <string> note-label: "Match note";
+    in property <string> openings-during-match: "Openings during the match";
+    in property <string> squad-breakdown-title: "Squad: what each player opened or broke";
+    in property <string> label-squad: "Squad";
+    in property <[string]> squad-headers: ["Player", "Chests", "Searched", "Broken open", "Share of squad", "Types"];
+    in property <string> openings-search-placeholder: "Search type or details";
+    in property <string> label-match: "Match";
+    in property <string> label-status: "Status";
+    in property <[string]> entry-statuses: ["Counted", "Removed", "All statuses"];
+    in property <string> openings-empty: "No openings yet. Play a match with Record Replays on.";
+    in property <[string]> opening-headers: ["When", "Type", "How", "Count", "Status", "Details"];
+    in property <string> btn-remove-entry: "Remove entry";
+    in property <string> btn-restore-entry: "Restore entry";
+    in property <string> btn-correct-entry: "Correct entry…";
+    in property <string> any-matches: "Any number of matches";
+    in property <string> matches-suffix: " matches";
+    in property <string> label-min-matches: "Minimum matches together";
+    in property <string> tip-export-csv: "Export as CSV";
+    in property <string> tip-export-json: "Export as JSON";
+    in property <[string]> team-records-titles: ["Most chests", "Best single match", "Played most with"];
+    in property <[string]> team-headers: ["Player", "Matches", "Chests", "Per match", "Searched", "Broken", "Rare+", "Best"];
+    in property <string> label-chest-types: "Chest types";
+    in property <string> label-chests-per-match: "Chests per match";
+    in property <string> chart-together-empty: "Matches together will chart here";
+    in property <string> label-matches-together: "Matches together";
+    in property <[string]> profile-match-headers: ["When", "Mode", "Their chests", "Your chests"];
+    in property <string> correct-title: "Correct opening";
+    in property <string> label-count: "Count";
+    in property <string> btn-cancel: "Cancel";
+    in property <string> btn-save: "Save";
+
+    // Settings
+    in property <string> set-appearance: "Appearance";
+    in property <string> set-language: "Language";
+    in property <string> set-language-hint: "Switch language immediately without restarting.";
+    in property <string> set-theme: "Theme";
+    in property <[string]> set-theme-opts: ["Light", "Dark", "System"];
+    in property <string> set-theme-label: "Colour theme";
+    in property <string> set-accent: "Accent colour";
+    in property <string> set-accent-hint: "Presets or your own #rrggbb. Everything is tuned from it.";
+    in property <string> set-accent-suffix: " accent colour";
+    in property <string> set-accent-custom-label: "Custom accent colour";
+    in property <string> set-contrast: "Higher contrast";
+    in property <string> set-contrast-hint: "Stronger outlines and muted text.";
+    in property <string> set-corners: "Corners";
+    in property <[string]> set-corners-opts: ["Sharp", "Default", "Round"];
+    in property <string> set-corners-label: "Corner radius";
+    in property <string> set-density: "Density";
+    in property <[string]> set-density-opts: ["Compact", "Comfortable"];
+    in property <string> set-density-label: "Spacing";
+    in property <string> set-text-size: "Text size";
+    in property <string> set-colorblind: "Colourblind-safe chest colours";
+    in property <string> set-colorblind-hint: "Chest types keep one colour everywhere. This swaps in a palette that stays apart for most colour vision.";
+    in property <string> set-background: "Background";
+    in property <string> set-background-hint: "A soft tonal wash instead of a flat colour.";
+    in property <[string]> set-background-opts: ["Solid", "Tonal"];
+    in property <string> set-animations: "Animations";
+    in property <string> set-animations-hint: "Reduced keeps short fades only. Windows' 'Show animations' off means Reduced.";
+    in property <[string]> set-animations-opts: ["Full", "Reduced", "Off"];
+    in property <string> set-show-title: "Show page title in title bar";
+    in property <string> set-show-title-hint: "Off by default: the page title is already at the top of each page.";
+
+    in property <string> set-tiles-section: "Overview tiles";
+    in property <string> set-tiles-row: "Summary tiles";
+    in property <string> set-tiles-hint: "Choose which stats appear on Overview. Use Customize there to move and resize them.";
+
+    in property <string> set-formats: "Formats";
+    in property <string> set-24h: "24-hour clock";
+    in property <string> set-date-format: "Date format";
+    in property <string> set-separators: "Number separator";
+    in property <string> set-separators-label: "Thousands separator";
+    in property <string> set-playtime: "Playtime shown as";
+    in property <string> set-default-range: "Default date range";
+    in property <string> set-default-range-hint: "Used for the trend chart and the Matches filter.";
+    in property <[string]> set-default-range-opts: ["7 days", "30 days", "90 days", "All time"];
+
+    in property <string> set-replays: "Replays";
+    in property <string> set-replay-folder: "Replay folder";
+    in property <string> set-replay-folder-hint: "Fortnite's default is Saved\\Demos under FortniteGame.";
+    in property <string> tip-choose-replay-folder: "Choose the replay folder";
+    in property <string> tip-open-replay-folder: "Open the replay folder";
+    in property <string> set-auto-watch: "Watch for new replays";
+    in property <string> set-auto-watch-hint: "Finished matches are added on their own.";
+    in property <string> set-auto-watch-label: "Check for replays automatically";
+    in property <string> set-check-every: "Check every";
+    in property <string> set-check-every-suffix: " s";
+    in property <string> set-check-every-label: "Replay check interval";
+    in property <string> set-count-broken: "Count broken-open chests";
+    in property <string> set-count-broken-hint: "Chests destroyed by your damage before anyone searched them. Their loot still spills.";
+    in property <string> set-count-broken-label: "Count chests you broke open";
+    in property <string> set-rescan: "Read every replay again";
+    in property <string> set-rescan-hint: "Re-reads all replays Fortnite still keeps. Your corrections are kept.";
+    in property <string> set-rescan-btn: "Read all replays again";
+
+    in property <string> set-live-section: "Live match and counter";
+    in property <string> set-live-privacy: "LootLedger only reads files Fortnite writes on this PC: the replay and the game's log time. It never touches the Fortnite process: no injection, hooks, memory reading or drawing over the game. The counter is an ordinary LootLedger window that stays on top.";
+    in property <string> set-live-track: "Track the current match";
+    in property <string> set-live-track-hint: "Fortnite encrypts the replay until the match ends, so the chest count arrives then, seconds after the match. During the match you see that it is live and how long it has run.";
+    in property <string> set-live-every-hint: "Fortnite saves the replay about every 20 s. Each check reads one file header.";
+    in property <string> set-live-every-label: "Live check interval";
+    in property <string> set-overlay: "Pop-out counter";
+    in property <string> set-overlay-hint: "A small always-on-top window with the count. Drag and resize it; it remembers where it was.";
+    in property <string> set-overlay-opacity: "Counter opacity";
+    in property <string> set-overlay-size: "Counter size";
+    in property <string> set-overlay-corner: "Counter position";
+    in property <[string]> set-overlay-corner-opts: ["Where I put it", "Top left", "Top right", "Bottom left", "Bottom right"];
+    in property <string> set-overlay-click: "Click through the counter";
+    in property <string> set-overlay-click-hint: "Clicks pass to the window underneath. Turn this off here to move the counter again.";
+    in property <string> set-overlay-teammates: "Teammates in the counter";
+    in property <string> set-match-popup: "Pop-up after each match";
+    in property <string> set-match-popup-hint: "Your chests, placement and how it compares, in the corner for a few seconds. It never takes focus from the game.";
+    in property <string> set-sound: "Sound when a match is counted";
+    in property <string> set-volume: "Volume";
+    in property <string> set-volume-label: "Sound volume";
+
+    in property <string> set-discord-section: "Discord Rich Presence";
+    in property <string> set-discord-rpc: "Show status on Discord";
+    in property <string> set-discord-rpc-hint: "Displays your last match, today, squad total and Token chance on your Discord profile.";
+    in property <string> set-discord-app-id: "Discord Application ID";
+    in property <string> set-discord-app-id-hint: "Create an app at discord.com/developers/applications (its name is what appears after Playing) and paste its Application ID here.";
+    in property <string> set-discord-app-id-placeholder: "e.g. 1234567890123456789";
+    in property <string> set-discord-only-game: "Only while Fortnite is running";
+    in property <string> set-discord-only-game-hint: "Turn off to show your stats on Discord whenever LootLedger is open.";
+
+    in property <string> set-goals-section: "Goals";
+    in property <string> set-goal-daily: "Daily goal";
+    in property <string> set-goal-daily-hint: "Chests per day. Type a number or pick a preset.";
+    in property <string> set-goal-weekly: "Weekly goal";
+    in property <string> set-goal-weekly-hint: "Chests per week, Monday to Sunday.";
+    in property <string> set-no-goal: "No goal";
+    in property <[string]> set-daily-presets: ["No goal", "10", "25", "50", "100", "Custom…"];
+    in property <[string]> set-weekly-presets: ["No goal", "50", "100", "250", "500", "Custom…"];
+    in property <string> set-celebrate: "Celebrate goals and trophies";
+    in property <string> set-celebrate-hint: "A short message inside LootLedger. Nothing is sent anywhere.";
+
+    in property <string> set-th-section: "Treasure Hours (Token boost)";
+    in property <string> set-th-auto: "Auto-sync official Treasure Hours";
+    in property <string> set-th-sync-now: "Sync now";
+    in property <string> set-th-add-title: "Add custom Treasure Hour";
+    in property <string> set-th-add-hint: "Local date, start–end time (e.g. 16:00 to 20:00) and boost multiplier (e.g. 1.5, 2x, or +50%). Custom entries override auto-synced odds for that window.";
+    in property <string> set-th-date-placeholder: "dd/mm/yyyy";
+    in property <string> set-th-date-label: "Date";
+    in property <string> set-th-start-label: "Start time";
+    in property <string> set-th-end-label: "End time";
+    in property <string> set-th-boost-label: "Boost";
+    in property <string> set-th-add-btn: "Add";
+    in property <string> set-th-remove-tip: "Remove custom Treasure Hour";
+
+    in property <string> set-shortcuts-section: "Shortcuts";
+    in property <string> set-hk-add: "Add one chest";
+    in property <string> set-hk-add-hint: "Works in any app. Example: Ctrl+Alt+F8";
+    in property <string> set-hk-add-label: "Manual +1 shortcut";
+    in property <string> set-hk-undo: "Undo last chest";
+    in property <string> set-hk-undo-hint: "Example: Ctrl+Alt+F9";
+    in property <string> set-hk-undo-label: "Undo shortcut";
+    in property <string> set-hk-overlay: "Show or hide the counter";
+    in property <string> set-hk-overlay-hint: "Example: Ctrl+Alt+F10. Leave empty to turn a shortcut off. Press ? in LootLedger for all shortcuts.";
+    in property <string> set-hk-overlay-label: "Show or hide the counter shortcut";
+
+    in property <string> set-data-section: "Data";
+    in property <string> set-data-row: "Ledger and settings";
+    in property <string> set-data-hint-prefix: "Stored in ";
+    in property <string> set-data-hint-suffix: ". Backups hold matches, openings and your edit history.";
+    in property <[MenuOption]> data-col1: [
+        { id: "Export ledger", label: "Export ledger" },
+        { id: "Create backup", label: "Create backup" },
+    ];
+    in property <[MenuOption]> data-col2: [
+        { id: "Restore backup", label: "Restore backup" },
+        { id: "Open data folder", label: "Open data folder" },
+    ];
+    in property <[MenuOption]> data-col3: [
+        { id: "Export settings", label: "Export settings" },
+        { id: "Import settings", label: "Import settings" },
+    ];
+    in property <string> set-check-updates: "Check for updates";
+    in property <string> set-clear-data: "Clear all data…";
+    in property <string> set-clear-data-note: "Clearing saves a backup first. Replay files stay on your PC and are not read again until you choose Read all replays again.";
+
+    in property <string> set-about-section: "About";
+    in property <string> set-about-prefix: "LootLedger ";
+    in property <string> set-about-suffix: " · counts the chests you open in Fortnite from the replays on this PC. Your data never leaves this PC.";
+    in property <string> set-auto-update: "Update automatically";
+    in property <string> set-auto-update-hint: "Asks GitHub for a newer LootLedger and installs it when you close the app. Only the version check and the download go over the internet; none of your data is sent.";
+    in property <string> set-whats-new: "What's new";
+}

@@ -9,7 +9,8 @@ import { Settings, SettingsPage, TreasureHourItem } from "settings.slint";
 export { Overlay, MatchPopup } from "overlay.slint";
 export { Summary } from "summary.slint";
 import { Pages, Row, MatchesPage, OpeningsPage, TeammatesPage, CorrectDialog } from "pages.slint";
-export { Tokens, Icons, Anim, Dash, Settings, Tip, Drag, Palette, Pages, Row, TreasureHourItem }
+import { I18n, MenuOption } from "i18n.slint";
+export { Tokens, Icons, Anim, Dash, Settings, Tip, Drag, Palette, Pages, Row, TreasureHourItem, I18n, MenuOption }
 export { CardData, DashRow, Cell, TableRow, BarRow, ChartPoint, Slice, HeatCell, Check, RingData, Trophy, Mark }
 
 // Window controls: Fluent glyphs, 46x32, red close hover, dimmed while the window is inactive.
@@ -140,12 +141,12 @@ export component AppWindow inherits Window {
     in property <string> snack;
     in property <int> snack-id;
     property <[{title: string, icon: string, sub: string}]> pages: [
-        { title: "Overview", icon: Icons.dashboard, sub: "" },
-        { title: "Matches", icon: Icons.sports-esports, sub: "Matches read from your replays. Select one to see its breakdown and timeline." },
-        { title: "Openings", icon: Icons.inventory-2, sub: "Every chest you opened, newest first. Corrections are recorded and never silently lost." },
-        { title: "Statistics", icon: Icons.insights, sub: "" },
-        { title: "Teammates", icon: Icons.groups, sub: "Everyone who played with you, merged across matches. Pick someone to see their profile." },
-        { title: "Settings", icon: Icons.settings, sub: "Changes apply immediately. Your replays and ledger never leave this PC." },
+        { title: I18n.nav-overview, icon: Icons.dashboard, sub: "" },
+        { title: I18n.nav-matches, icon: Icons.sports-esports, sub: I18n.sub-matches },
+        { title: I18n.nav-openings, icon: Icons.inventory-2, sub: I18n.sub-openings },
+        { title: I18n.nav-statistics, icon: Icons.insights, sub: "" },
+        { title: I18n.nav-teammates, icon: Icons.groups, sub: I18n.sub-teammates },
+        { title: I18n.nav-settings, icon: Icons.settings, sub: I18n.sub-settings },
     ];
     callback minimize;
     callback maximize;
@@ -229,15 +230,15 @@ export component AppWindow inherits Window {
                     }
                 }
                 Rectangle { horizontal-stretch: 1; }
-                CaptionButton { glyph: "\u{E921}"; label: "Minimize"; active: window-active; clicked => { root.minimize(); } }
+                CaptionButton { glyph: "\u{E921}"; label: I18n.win-minimize; active: window-active; clicked => { root.minimize(); } }
                 CaptionButton {
                     glyph: is-maximized ? "\u{E923}" : "\u{E922}";
-                    label: is-maximized ? "Restore" : "Maximize";
+                    label: is-maximized ? I18n.win-restore : I18n.win-maximize;
                     active: window-active;
                     hover-override: max-hover;
                     clicked => { root.maximize(); }
                 }
-                CaptionButton { glyph: "\u{E8BB}"; label: "Close"; close: true; active: window-active; clicked => { root.request-close(); } }
+                CaptionButton { glyph: "\u{E8BB}"; label: I18n.win-close; close: true; active: window-active; clicked => { root.request-close(); } }
             }
         }
         HorizontalLayout {
@@ -287,38 +288,38 @@ export component AppWindow inherits Window {
                                     y: (parent.height - self.height) / 2;
                                     options: missing-widgets;
                                     current: 0;
-                                    label: "Add widget";
+                                    label: I18n.add-widget;
                                     changed(i) => { root.add-widget(i); }
                                 }
                                 if page == 0 && editing: Button {
                                     y: (parent.height - self.height) / 2;
-                                    text: "Reset layout";
+                                    text: I18n.reset-layout;
                                     kind: "text";
                                     clicked => { root.reset-layout(); }
                                 }
                                 if page == 0: IconButton {
                                     y: (parent.height - self.height) / 2;
                                     icon: Icons.tune;
-                                    tip: "Customize the dashboard";
+                                    tip: I18n.tip-customize;
                                     checked: editing;
                                     clicked => { root.editing = !root.editing; Dash.editing = root.editing; }
                                 }
                                 if page == 0: IconButton {
                                     y: (parent.height - self.height) / 2;
                                     icon: Icons.refresh;
-                                    tip: "Check for new replays now";
+                                    tip: I18n.tip-scan;
                                     clicked => { root.overview-action("scan"); }
                                 }
                                 if page == 0: share := IconButton {
                                     y: (parent.height - self.height) / 2;
                                     icon: Icons.ios-share;
-                                    tip: "Share a summary image (saved or copied, never uploaded)";
+                                    tip: I18n.tip-share;
                                     clicked => { share-menu.show(); }
                                 }
                                 if page == 0: IconButton {
                                     y: (parent.height - self.height) / 2;
                                     icon: Icons.picture-in-picture-alt;
-                                    tip: "Pop-out counter";
+                                    tip: I18n.tip-overlay;
                                     clicked => { root.overview-action("overlay"); }
                                 }
                             }
@@ -357,13 +358,13 @@ export component AppWindow inherits Window {
                             if page == 2: IconButton {
                                 y: (parent.height - self.height) / 2;
                                 icon: Icons.undo;
-                                tip: "Undo the last counted opening";
+                                tip: I18n.tip-undo-opening;
                                 clicked => { Pages.action("undo"); }
                             }
                             if page == 2: IconButton {
                                 y: (parent.height - self.height) / 2;
                                 icon: Icons.download;
-                                tip: "Export the openings shown";
+                                tip: I18n.tip-export-openings;
                                 clicked => { Pages.action("export"); }
                             }
                             if page == 2: Rectangle {
@@ -372,7 +373,7 @@ export component AppWindow inherits Window {
                                 border-radius: Tokens.r-lg;
                                 background: fab.has-hover ? Tokens.primary-container.mix(Tokens.on-primary-container, 0.92) : Tokens.primary-container;
                                 accessible-role: button;
-                                accessible-label: "Add a manual chest";
+                                accessible-label: I18n.label-add-chest;
                                 accessible-action-default => { Pages.action("add"); }
                                 Icon { name: Icons.add; size: 28px; color: Tokens.on-primary-container; }
                                 fab := TouchArea { mouse-cursor: pointer; clicked => { Pages.action("add"); } }
@@ -405,8 +406,8 @@ export component AppWindow inherits Window {
                 spacing: Tokens.m;
                 alignment: start;
                 if dialog == 1: TextField {
-                    placeholder: "Type a page, match, teammate or setting";
-                    label: "Command search";
+                    placeholder: I18n.palette-placeholder;
+                    label: I18n.palette-label;
                     leading-icon: Icons.search;
                     init => { self.focus(); }
                     edited(text) => { root.palette-query(text); }
@@ -463,9 +464,9 @@ export component AppWindow inherits Window {
                 if dialog == 2: HorizontalLayout {
                     alignment: end;
                     spacing: Tokens.s;
-                    if root.info-action != "": Button { text: "Later"; kind: "text"; clicked => { root.dialog = 0; } }
+                    if root.info-action != "": Button { text: I18n.btn-later; kind: "text"; clicked => { root.dialog = 0; } }
                     if root.info-action != "": Button { text: root.info-action; kind: "filled"; clicked => { root.dialog = 0; root.info-run(); } }
-                    if root.info-action == "": Button { text: "OK"; kind: "filled"; clicked => { root.dialog = 0; } }
+                    if root.info-action == "": Button { text: I18n.btn-ok; kind: "filled"; clicked => { root.dialog = 0; } }
                 }
             }
         }
@@ -482,12 +483,12 @@ export component AppWindow inherits Window {
             drop-shadow-color: Tokens.shadow;
             VerticalLayout {
                 padding: Tokens.xs;
-                for item in ["Copy summary image", "Save summary image…", "Copy weekly recap", "Save weekly recap…"]: Rectangle {
+                for item in I18n.share-options: Rectangle {
                     height: Tokens.button-height;
                     border-radius: Tokens.r-sm;
                     background: ta.has-hover ? Tokens.on-surface.with-alpha(0.08) : transparent;
-                    Text { x: Tokens.m; height: parent.height; text: item; color: Tokens.on-surface; font-size: Tokens.body; vertical-alignment: center; }
-                    ta := TouchArea { mouse-cursor: pointer; clicked => { root.overview-action(item); } }
+                    Text { x: Tokens.m; height: parent.height; text: item.label; color: Tokens.on-surface; font-size: Tokens.body; vertical-alignment: center; }
+                    ta := TouchArea { mouse-cursor: pointer; clicked => { root.overview-action(item.id); } }
                 }
             }
         }

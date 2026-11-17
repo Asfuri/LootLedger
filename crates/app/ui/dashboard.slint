@@ -5,10 +5,11 @@ import { Icons } from "icons.slint";
 import { CardData, DashRow, Cell, TableRow } from "types.slint";
 import { Icon, IconButton, Segmented, TextField, Card, SectionText } from "controls.slint";
 import { Sparkline, SeriesChart, Donut, Ring, Heatmap, BarRows, Timeline, Pulse, Anim } from "charts.slint";
+import { I18n } from "i18n.slint";
 
 export global Dash {
     in property <bool> editing;
-    in property <[string]> style-names: ["Bar", "Line", "Smooth", "Area"];
+    in property <[string]> style-names: I18n.chart-styles;
     callback move(int, int);          // from index, to index
     callback resize(int, int);        // index, span
     callback remove(int);
@@ -155,15 +156,15 @@ export component CardView inherits Rectangle {
                 spacing: Tokens.s;
                 alignment: start;
                 Segmented {
-                    options: ["7d", "30d", "90d", "All"];
+                    options: I18n.trend-ranges;
                     current: card.range-index;
-                    label: "Date range";
+                    label: I18n.label-date-range;
                     changed(i) => { Dash.trend-range(card.id, i); }
                 }
                 Segmented {
-                    options: ["Day", "Week", "Month"];
+                    options: I18n.trend-grains;
                     current: card.grain-index;
-                    label: "Group by";
+                    label: I18n.label-group-by;
                     changed(i) => { Dash.trend-grain(card.id, i); }
                 }
             }
@@ -181,7 +182,7 @@ export component CardView inherits Rectangle {
                 Segmented {
                     options: Dash.style-names;
                     current: card.style-index;
-                    label: "Chart style";
+                    label: I18n.label-chart-style;
                     changed(i) => { Dash.chart-style(i); }
                 }
             }
@@ -217,7 +218,7 @@ export component CardView inherits Rectangle {
                 Segmented {
                     options: Dash.style-names;
                     current: card.style-index;
-                    label: "Chart style";
+                    label: I18n.label-chart-style;
                     changed(i) => { Dash.chart-style(i); }
                 }
             }
@@ -266,7 +267,7 @@ export component CardView inherits Rectangle {
                     color: check.ok ? Tokens.primary : Tokens.error;
                     vertical-alignment: top;
                     accessible-role: text;
-                    accessible-label: check.ok ? "Done" : "Needs attention";
+                    accessible-label: check.ok ? I18n.status-done : I18n.status-attention;
                 }
                 VerticalLayout {
                     horizontal-stretch: 1;
@@ -302,7 +303,7 @@ export component CardView inherits Rectangle {
                     width: grid.cell-w;
                     height: 74px;
                     accessible-role: text;
-                    accessible-label: t.title + (t.unlocked ? ", unlocked: " : ", locked: ") + t.detail;
+                    accessible-label: t.title + (t.unlocked ? I18n.trophy-unlocked-a11y : I18n.trophy-locked-a11y) + t.detail;
                     VerticalLayout {
                         alignment: start;
                         spacing: Tokens.xxs;
@@ -317,7 +318,7 @@ export component CardView inherits Rectangle {
                         }
                     }
                     TouchArea {
-                        property <string> tip: t.detail + (t.unlocked ? " · unlocked" : " · locked");
+                        property <string> tip: t.detail + (t.unlocked ? I18n.trophy-unlocked-tip : I18n.trophy-locked-tip);
                         changed has-hover => {
                             if self.has-hover { Tip.text = tip; Tip.x = self.absolute-position.x + self.width / 2; Tip.y = self.absolute-position.y; Tip.above = true; }
                             else if Tip.text == tip { Tip.text = ""; }
@@ -329,20 +330,20 @@ export component CardView inherits Rectangle {
         // ---- Compare two periods
         if card.kind == "compare": VerticalLayout {
             spacing: Tokens.s;
-            for name[p] in ["First", "Second"]: HorizontalLayout {
+            for name[p] in I18n.compare-periods: HorizontalLayout {
                 spacing: Tokens.s;
                 Text { text: name; width: 64px; color: Tokens.on-surface-variant; font-size: Tokens.body; vertical-alignment: center; }
                 TextField {
                     width: 140px;
                     text: card.dates[p * 2];
-                    label: name + " period from";
+                    label: name + I18n.compare-from-suffix;
                     accepted(text) => { Dash.compare-date(card.id, p * 2, text); }
                 }
-                Text { text: "to"; color: Tokens.on-surface-variant; font-size: Tokens.body; vertical-alignment: center; }
+                Text { text: I18n.compare-to; color: Tokens.on-surface-variant; font-size: Tokens.body; vertical-alignment: center; }
                 TextField {
                     width: 140px;
                     text: card.dates[p * 2 + 1];
-                    label: name + " period to";
+                    label: name + I18n.compare-to-suffix;
                     accepted(text) => { Dash.compare-date(card.id, p * 2 + 1, text); }
                 }
                 Rectangle { horizontal-stretch: 1; }
@@ -363,16 +364,16 @@ export component CardView inherits Rectangle {
         tools := HorizontalLayout {
             padding-left: Tokens.xxs;
             padding-right: Tokens.xxs;
-            IconButton { y: 2px; size: 32px; icon: Icons.arrow-back; tip: "Move earlier"; enabled: index > 0; clicked => { Dash.move(index, index - 1); } }
-            IconButton { y: 2px; size: 32px; icon: Icons.arrow-forward; tip: "Move later"; clicked => { Dash.move(index, index + 1); } }
+            IconButton { y: 2px; size: 32px; icon: Icons.arrow-back; tip: I18n.tip-move-earlier; enabled: index > 0; clicked => { Dash.move(index, index - 1); } }
+            IconButton { y: 2px; size: 32px; icon: Icons.arrow-forward; tip: I18n.tip-move-later; clicked => { Dash.move(index, index + 1); } }
             IconButton {
                 y: 2px;
                 size: 32px;
                 icon: card.span > 1 ? Icons.close-fullscreen : Icons.open-in-full;
-                tip: card.span > 1 ? "Make narrow" : "Make wide";
+                tip: card.span > 1 ? I18n.tip-make-narrow : I18n.tip-make-wide;
                 clicked => { Dash.resize(index, card.span > 1 ? 1 : 2); }
             }
-            IconButton { y: 2px; size: 32px; icon: Icons.close; tip: "Remove from the dashboard"; clicked => { Dash.remove(index); } }
+            IconButton { y: 2px; size: 32px; icon: Icons.close; tip: I18n.tip-remove-widget; clicked => { Dash.remove(index); } }
             handle := Rectangle {
                 width: 32px;
                 Icon { name: Icons.drag-indicator; size: 20px; }

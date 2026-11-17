@@ -3,6 +3,7 @@
 import { Tokens, Tip } from "tokens.slint";
 import { BarRow, ChartPoint, Slice, HeatCell, RingData, Mark } from "types.slint";
 import { Icon } from "controls.slint";
+import { I18n } from "i18n.slint";
 
 export global Anim {
     in property <float> reveal: 1;
@@ -260,8 +261,8 @@ export component Heatmap inherits Rectangle {
     property <length> cell-h: max(12px, min(26px, cell-w));
     min-height: cell-h * 7 + 40px;
     accessible-role: image;
-    accessible-label: "Chests by weekday and hour";
-    for day[d] in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]: Text {
+    accessible-label: I18n.heat-label;
+    for day[d] in I18n.heat-days: Text {
         x: 0;
         y: d * cell-h;
         height: cell-h;
@@ -292,13 +293,13 @@ export component Heatmap inherits Rectangle {
         width: 180px;
         height: 14px;
         spacing: Tokens.xs;
-        Text { text: "Fewer"; font-size: Tokens.label; color: Tokens.on-surface-variant; }
+        Text { text: I18n.heat-fewer; font-size: Tokens.label; color: Tokens.on-surface-variant; }
         for a in [0.0, 0.25, 0.5, 0.75, 1.0]: Rectangle {
             width: 14px;
             border-radius: Tokens.r-xs;
             background: a == 0 ? Tokens.container-highest : Tokens.primary.with-alpha(0.15 + 0.85 * a);
         }
-        Text { text: "More"; font-size: Tokens.label; color: Tokens.on-surface-variant; }
+        Text { text: I18n.heat-more; font-size: Tokens.label; color: Tokens.on-surface-variant; }
     }
 }
 

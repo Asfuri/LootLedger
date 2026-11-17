@@ -1,6 +1,7 @@
 // Shared Material 3 controls. Colours, sizes and radii come from Tokens only.
 import { Tokens, Tip } from "tokens.slint";
 import { Icons } from "icons.slint";
+import { I18n } from "i18n.slint";
 
 export component Icon inherits Text {
     in property <string> name;
@@ -327,7 +328,7 @@ export component TextField inherits Rectangle {
         if input.text != "" && input.has-focus: IconButton {
             y: (parent.height - self.height) / 2;
             icon: Icons.close;
-            tip: "Clear";
+            tip: I18n.clear;
             size: 28px;
             clicked => { input.text = ""; root.edited(""); }
         }
@@ -483,7 +484,7 @@ export component Stepper inherits Rectangle {
         IconButton {
             y: (parent.height - self.height) / 2;
             icon: Icons.remove;
-            tip: "Less";
+            tip: I18n.less;
             size: 32px;
             enabled: value > minimum;
             clicked => { changed(max(minimum, value - step)); }
@@ -511,14 +512,14 @@ export component Stepper inherits Rectangle {
         if preset-names.length > 0: IconButton {
             y: (parent.height - self.height) / 2;
             icon: Icons.expand-more;
-            tip: "Presets";
+            tip: I18n.presets;
             size: 32px;
             clicked => { presets.show(); }
         }
         IconButton {
             y: (parent.height - self.height) / 2;
             icon: Icons.add;
-            tip: "More";
+            tip: I18n.more;
             size: 32px;
             enabled: value < maximum;
             clicked => { changed(min(maximum, value + step)); }

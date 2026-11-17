@@ -3,6 +3,7 @@
 mod cards;
 mod config;
 mod discord;
+mod i18n;
 mod icons;
 mod live;
 #[cfg(windows)]
@@ -29,6 +30,14 @@ slint::include_modules!();
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+#[derive(Clone, Copy)]
+enum ScanNote {
+    None,
+    WaitingFirst,
+    Checking,
+    Reading(usize, usize),
+}
+
 struct App {
     ui: slint::Weak<AppWindow>,
     folder: PathBuf,
@@ -46,7 +55,7 @@ struct App {
     ended_id: Option<String>,
     pop_id: i32,
     scanning: bool,
-    scan_note: String,
+    scan_note: ScanNote,
     scan_error: Option<String>,
     last_scan: Option<DateTime<Local>>,
     columns: [i32; 2],
@@ -92,6 +101,10 @@ fn with_app<R>(f: impl FnOnce(&mut App) -> R) -> Option<R> {
     Some(f(&mut app))
 }
 
+fn current_lang() -> i18n::Lang {
+    with_app(|a| i18n::from_code(&a.prefs.language)).unwrap_or_default()
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // --snap=DIR: render each page off-screen, unfocused, save screenshots and quit (visual QA).
     let snap_dir = std::env::args().find_map(|a| a.strip_prefix("--snap=").map(PathBuf::from));
@@ -122,8 +135,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .find_map(|a| a.strip_prefix("--data=").map(PathBuf::from))
         .unwrap_or_else(config::data_dir);
     let prefs = Prefs::read(&folder.join("ui-settings.json"));
+    let initial_lang = i18n::from_code(&prefs.language);
     let config = config::Config::read(&folder.join("config.json"));
-    let (store, store_error) = match open_store(&folder) {
+    let (store, store_error) = match open_store(&folder, initial_lang) {
         Ok(s) => (Some(s), None),
         Err(e) => (None, Some(e)),
     };
@@ -133,9 +147,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let treasure_hours = treasure.all_windows();
     let discord = discord::Client::new(|status| {
         let _ = slint::invoke_from_event_loop(move || {
-            with_app(|a| a.discord_status = status.clone());
+            let text = with_app(|a| {
+                a.discord_status = status.clone();
+                i18n::from_code(&a.prefs.language).discord_status(&status)
+            })
+            .unwrap_or(status);
             if let Some(ui) = window() {
-                ui.global::<Settings>().set_discord_status(status.into());
+                ui.global::<Settings>().set_discord_status(text.into());
             }
         });
     });
@@ -156,7 +174,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         ended_id: None,
         pop_id: 0,
         scanning: false,
-        scan_note: "Waiting for the first replay check".into(),
+        scan_note: ScanNote::WaitingFirst,
         scan_error: None,
         last_scan: None,
         columns: [3, 3],
@@ -177,6 +195,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = Rc::new(RefCell::new(app));
     APP.with(|a| *a.borrow_mut() = Some(app.clone()));
 
+    i18n::apply(&ui, initial_lang);
     apply_theme();
     fill_settings();
     wire(&ui);
@@ -298,11 +317,16 @@ fn snapshots(ui: &AppWindow, dir: PathBuf) -> Timer {
         }
         let (page, scheme) = shots[n];
         if std::env::args().any(|a| a == "--whats-new") {
-            let rows = WHATS_NEW
+            let lang = current_lang();
+            let rows = whats_new(lang)
                 .iter()
                 .map(|line| vec![(format!("•  {line}"), 4)])
                 .collect();
-            info(&format!("What's new in {VERSION}"), rows, "");
+            info(
+                &format!("{} {VERSION}", lang.t("What's new in", "Novidades no")),
+                rows,
+                "",
+            );
         }
         with_app(|a| a.prefs.theme = scheme.into());
         apply_theme();
@@ -350,16 +374,30 @@ fn bmp(pixels: &slint::SharedPixelBuffer<slint::Rgba8Pixel>) -> Vec<u8> {
 }
 
 /// Opens the shared ledger. The first time the Rust app opens it, a backup is made first.
-fn open_store(folder: &Path) -> Result<Store, String> {
+fn open_store(folder: &Path, lang: i18n::Lang) -> Result<Store, String> {
     let path = folder.join("ledger.sqlite");
-    let store = Store::open(&path).map_err(|e| format!("Could not open the ledger: {e}"))?;
+    let store = Store::open(&path).map_err(|e| {
+        format!(
+            "{}: {e}",
+            lang.t(
+                "Could not open the ledger",
+                "Não foi possível abrir o registro"
+            )
+        )
+    })?;
     let marker = folder
         .join("backups")
         .join(format!("before-lootledger-{VERSION}.sqlite"));
     if path.exists() && !marker.exists() {
-        store
-            .backup(&marker)
-            .map_err(|e| format!("Could not back up the ledger before first use: {e}"))?;
+        store.backup(&marker).map_err(|e| {
+            format!(
+                "{}: {e}",
+                lang.t(
+                    "Could not back up the ledger before first use",
+                    "Não foi possível fazer backup do registro antes do primeiro uso"
+                )
+            )
+        })?;
     }
     Ok(store)
 }
@@ -504,6 +542,14 @@ fn fill_settings() {
     let Some(ui) = window() else { return };
     with_app(|app| {
         let (p, c, s) = (&app.prefs, &app.config, ui.global::<Settings>());
+        let lang = i18n::from_code(&p.language);
+        s.set_language(
+            i18n::LANGUAGES
+                .iter()
+                .position(|(code, _)| *code == lang.code())
+                .unwrap_or(0) as i32,
+        );
+        s.set_language_names(cards::model(lang.language_names()));
         s.set_theme(index_of(&["light", "dark", "system"], &p.theme));
         s.set_seed(p.seed.clone().into());
         s.set_seeds(cards::model(
@@ -515,7 +561,7 @@ fn fill_settings() {
         s.set_seed_names(cards::model(
             theme::SEEDS
                 .iter()
-                .map(|(n, _)| SharedString::from(*n))
+                .map(|(n, _)| SharedString::from(lang.seed_name(n)))
                 .collect(),
         ));
         s.set_seed_index(
@@ -536,7 +582,7 @@ fn fill_settings() {
         s.set_tile_names(cards::model(
             cards::STAT_TITLES
                 .iter()
-                .map(|t| SharedString::from(t.1))
+                .map(|t| SharedString::from(lang.tile_chip_title(t.0)))
                 .collect(),
         ));
         s.set_tiles_on(cards::model(
@@ -590,36 +636,59 @@ fn fill_settings() {
         s.set_auto_treasure_hours(p.auto_treasure_hours);
         let now_local = Local::now();
         let now_utc = chrono::Utc::now();
+        let count = app.treasure_hours.len();
         let status = if let Some((boost, end_opt, _)) =
             lootledger_core::stats::active_treasure_window(&now_local, &app.treasure_hours)
         {
             let until = end_opt
-                .map(|e| format!(" until {}", p.clock_time(e.with_timezone(&Local))))
+                .map(|e| {
+                    format!(
+                        " {} {}",
+                        lang.t("until", "até"),
+                        p.clock_time(e.with_timezone(&Local))
+                    )
+                })
                 .unwrap_or_default();
-            format!(
-                "⚡ ACTIVE NOW ({boost:.2}×{until}) · {} windows loaded.",
-                app.treasure_hours.len()
-            )
+            match lang {
+                i18n::Lang::En => {
+                    format!("⚡ ACTIVE NOW ({boost:.2}×{until}) · {count} windows loaded.")
+                }
+                i18n::Lang::PtBr => {
+                    format!("⚡ ATIVO AGORA ({boost:.2}×{until}) · {count} janelas carregadas.")
+                }
+            }
             .replace(".00×", "×")
         } else if let Some(next) =
             lootledger_core::stats::next_treasure_window(&now_local, &app.treasure_hours)
         {
             let ns = next.start_utc.with_timezone(&Local);
             let ne = next.end_utc.with_timezone(&Local);
-            format!(
-                "Next: {} {}–{} ({:.2}×) · {} windows loaded.",
-                p.full_date(ns.date_naive()),
-                p.clock_time(ns),
-                p.clock_time(ne),
-                next.boost,
-                app.treasure_hours.len()
-            )
+            match lang {
+                i18n::Lang::En => format!(
+                    "Next: {} {}–{} ({:.2}×) · {count} windows loaded.",
+                    p.full_date(ns.date_naive()),
+                    p.clock_time(ns),
+                    p.clock_time(ne),
+                    next.boost
+                ),
+                i18n::Lang::PtBr => format!(
+                    "Próximo: {} {}–{} ({:.2}×) · {count} janelas carregadas.",
+                    p.full_date(ns.date_naive()),
+                    p.clock_time(ns),
+                    p.clock_time(ne),
+                    next.boost
+                ),
+            }
             .replace(".00×", "×")
         } else {
-            format!(
-                "Fetches official & extended Treasure Hours from GitHub ({} loaded).",
-                app.treasure_hours.len()
-            )
+            match lang {
+                i18n::Lang::En => format!(
+                    "Fetches official & extended Treasure Hours from GitHub ({count} loaded)."
+                ),
+                i18n::Lang::PtBr => format!(
+                    "Busca Horários do Tesouro oficiais e estendidos no GitHub ({count} carregados)."
+                ),
+            }
         };
         s.set_treasure_status(status.into());
         if s.get_th_date().is_empty() {
@@ -662,14 +731,22 @@ fn fill_settings() {
                     )
                 };
                 let denom = (lootledger_core::stats::BASE_TOKEN_DENOM / w.boost).round() as i64;
-                let boost = format!("{:.2}× (1 in {})", w.boost, p.int(denom)).replace(".00×", "×");
+                let boost = format!(
+                    "{:.2}× (1 {} {})",
+                    w.boost,
+                    lang.t("in", "em"),
+                    p.int(denom)
+                )
+                .replace(".00×", "×");
                 let active = now_utc >= w.start_utc && now_utc < w.end_utc;
                 let source = if active {
-                    format!("LIVE · {}", if w.synced { "Auto" } else { "Manual" })
-                } else if w.label.is_empty() {
-                    if w.synced { "Auto" } else { "Manual" }.to_owned()
+                    format!(
+                        "{} · {}",
+                        lang.t("LIVE", "AO VIVO"),
+                        lang.treasure_label("", w.synced)
+                    )
                 } else {
-                    w.label.clone()
+                    lang.treasure_label(&w.label, w.synced)
                 };
                 TreasureHourItem {
                     id: w.id.into(),
@@ -691,7 +768,7 @@ fn fill_settings() {
         s.set_discord_rpc(p.discord_rpc);
         s.set_discord_app_id(p.discord_app_id.clone().into());
         s.set_discord_only_in_game(p.discord_only_in_game);
-        s.set_discord_status(app.discord_status.clone().into());
+        s.set_discord_status(lang.discord_status(&app.discord_status).into());
     });
 }
 
@@ -700,7 +777,12 @@ fn set_setting(name: &str, value: &str) {
     let index = value.parse::<usize>().unwrap_or(0);
     let on = value == "true";
     let pick = |options: &[&str]| json!(options.get(index).copied().unwrap_or(options[0]));
+    let l = current_lang();
     let pref = match name {
+        "language" => Some((
+            "language",
+            json!(i18n::LANGUAGES.get(index).map_or("en", |x| x.0)),
+        )),
         "theme" => Some(("theme", pick(&["light", "dark", "system"]))),
         "seed-index" => Some((
             "seed",
@@ -714,7 +796,7 @@ fn set_setting(name: &str, value: &str) {
                 format!("#{hex}")
             };
             if !prefs::valid_hex(&hex) {
-                snack("Use a colour like #e8b04f");
+                snack(l.t("Use a colour like #e8b04f", "Use uma cor como #e8b04f"));
                 fill_settings();
                 return;
             }
@@ -770,7 +852,10 @@ fn set_setting(name: &str, value: &str) {
         "discord_app_id" => {
             let trimmed = value.trim();
             if !trimmed.is_empty() && !prefs::valid_discord_app_id(trimmed) {
-                snack("Discord Application ID must be 17–22 digits");
+                snack(l.t(
+                    "Discord Application ID must be 17–22 digits",
+                    "O Application ID do Discord precisa ter 17 a 22 dígitos",
+                ));
             }
             Some(("discord_app_id", json!(trimmed)))
         }
@@ -796,6 +881,11 @@ fn set_setting(name: &str, value: &str) {
             }
             report(app.prefs.save(&app.folder.join("ui-settings.json")));
         });
+        if key == "language"
+            && let Some(ui) = window()
+        {
+            i18n::apply(&ui, current_lang());
+        }
         if key.starts_with("overlay") {
             apply_overlay();
         }
@@ -825,7 +915,7 @@ fn set_setting(name: &str, value: &str) {
             apply_theme();
         }
         fill_settings();
-        refresh(false);
+        refresh(key == "language");
         return;
     }
     if let Some(i) = name
@@ -901,17 +991,24 @@ fn scan() {
         if app.scanning || app.store.is_none() {
             return None;
         }
+        let lang = i18n::from_code(&app.prefs.language);
         let folder = app.config.replay_folder();
         if !folder.is_dir() {
-            app.scan_error = Some(format!(
-                "Replay folder not found: {}. Turn on Record Replays in Fortnite (Settings → Game → Replays) and play a match, or choose the folder in Settings.",
-                folder.display()
-            ));
+            app.scan_error = Some(match lang {
+                i18n::Lang::En => format!(
+                    "Replay folder not found: {}. Turn on Record Replays in Fortnite (Settings → Game → Replays) and play a match, or choose the folder in Settings.",
+                    folder.display()
+                ),
+                i18n::Lang::PtBr => format!(
+                    "Pasta de replays não encontrada: {}. Ative Gravar Replays no Fortnite (Configurações → Jogo → Replays) e jogue uma partida, ou escolha a pasta em Configurações.",
+                    folder.display()
+                ),
+            });
             return None;
         }
         app.scan_error = None;
         app.scanning = true;
-        app.scan_note = "Checking replays…".into();
+        app.scan_note = ScanNote::Checking;
         Some((folder, app.folder.join("ledger.sqlite"), app.config.count_broken()))
     })
     .flatten()
@@ -927,7 +1024,7 @@ fn scan() {
             Ok(mut store) => live::scan(&mut store, &folder, |done, total| {
                 if total > 1 {
                     let _ = slint::invoke_from_event_loop(move || {
-                        with_app(|a| a.scan_note = format!("Reading replays {done}/{total}…"));
+                        with_app(|a| a.scan_note = ScanNote::Reading(done, total));
                         refresh_status();
                     });
                 }
@@ -946,7 +1043,7 @@ fn scan_finished(result: live::ScanResult) {
         app.scanning = false;
         app.live_replay = result.live;
         app.scan_error = result.error.clone();
-        app.scan_note.clear();
+        app.scan_note = ScanNote::None;
         app.last_scan = Some(Local::now());
         app.tracker.state == live::State::Saving && result.error.is_none()
     })
@@ -964,8 +1061,9 @@ fn scan_finished(result: live::ScanResult) {
 /// The corner card after a match is counted. It never takes focus, and closes after 8 s or on a click.
 fn show_match_popup() {
     let Some(ui) = window() else { return };
-    let Some((heading, count, detail, corner)) = with_app(|app| {
+    let Some((heading, count, unit, detail, corner)) = with_app(|app| {
         let p = &app.prefs;
+        let lang = i18n::from_code(&p.language);
         let snap = app.snap.as_ref()?;
         let id = app.ended_id.as_ref()?;
         let row = snap.match_rows.iter().find(|r| &r.id == id)?;
@@ -983,8 +1081,13 @@ fn show_match_popup() {
             "bottom-right"
         };
         Some((
-            format!("Match counted · {}{place}", row.mode),
+            format!(
+                "{} · {}{place}",
+                lang.t("Match counted", "Partida contada"),
+                lang.mode_name(&row.mode)
+            ),
             p.int(row.count),
+            lang.chest_word(row.count),
             cards::popup_detail(row.count, snap, p),
             corner,
         ))
@@ -999,6 +1102,7 @@ fn show_match_popup() {
         let tokens = ui.global::<Tokens>();
         w.set_heading(heading.into());
         w.set_count(count.into());
+        w.set_unit(unit.into());
         w.set_detail(detail.into());
         w.set_surface(tokens.get_container_high());
         w.set_outline(tokens.get_outline_variant());
@@ -1129,6 +1233,7 @@ fn live_view(app: &App) -> cards::LiveView {
 }
 
 fn health(app: &App) -> cards::Health {
+    let lang = i18n::from_code(&app.prefs.language);
     let folder = app.config.replay_folder();
     let files = live::replays(&folder);
     let newest = files
@@ -1142,27 +1247,50 @@ fn health(app: &App) -> cards::Health {
     let now = live::seconds(std::time::SystemTime::now());
     let played_without_replay =
         game.is_some_and(|g| now - g < 86400.0 && newest.is_none_or(|n| g - n > 3.0 * 3600.0));
-    let fix = "In Fortnite: Settings → Game → Replays → Record Replays: On. Then play a match.";
+    let fix = lang.t(
+        "In Fortnite: Settings → Game → Replays → Record Replays: On. Then play a match.",
+        "No Fortnite: Configurações → Jogo → Replays → Gravar Replays: Ligado. Depois jogue uma partida.",
+    );
     let checks = vec![
         (
-            "Replay folder found".to_owned(),
+            lang.t("Replay folder found", "Pasta de replays encontrada")
+                .to_owned(),
             folder.is_dir(),
-            format!(
-                "Fortnite creates {} after its first recorded match. {fix}",
-                folder.display()
-            ),
+            match lang {
+                i18n::Lang::En => format!(
+                    "Fortnite creates {} after its first recorded match. {fix}",
+                    folder.display()
+                ),
+                i18n::Lang::PtBr => format!(
+                    "O Fortnite cria {} após a primeira partida gravada. {fix}",
+                    folder.display()
+                ),
+            },
         ),
         (
-            "Fortnite has saved replays".to_owned(),
+            lang.t(
+                "Fortnite has saved replays",
+                "O Fortnite tem replays salvos",
+            )
+            .to_owned(),
             !files.is_empty(),
             fix.to_owned(),
         ),
         (
-            "Recent matches were recorded".to_owned(),
+            lang.t(
+                "Recent matches were recorded",
+                "Partidas recentes foram gravadas",
+            )
+            .to_owned(),
             !files.is_empty() && !played_without_replay,
-            format!(
-                "Fortnite ran in the last day but saved no replay for hours. Record Replays may be off. {fix}"
-            ),
+            match lang {
+                i18n::Lang::En => format!(
+                    "Fortnite ran in the last day but saved no replay for hours. Record Replays may be off. {fix}"
+                ),
+                i18n::Lang::PtBr => format!(
+                    "O Fortnite rodou nas últimas 24 h mas não salvou replay há horas. Gravar Replays pode estar desativado. {fix}"
+                ),
+            },
         ),
     ];
     let (read, unreadable) = app
@@ -1177,9 +1305,17 @@ fn health(app: &App) -> cards::Health {
         read,
         unreadable,
         watching: if app.config.auto_watch() {
-            format!("Checking every {} s", app.config.scan_seconds())
+            let every = app.config.scan_seconds();
+            match lang {
+                i18n::Lang::En => format!("Checking every {every} s"),
+                i18n::Lang::PtBr => format!("Verificando a cada {every} s"),
+            }
         } else {
-            "Automatic checks are off".into()
+            lang.t(
+                "Automatic checks are off",
+                "Verificação automática desativada",
+            )
+            .into()
         },
         last_scan: app.last_scan,
     }
@@ -1240,6 +1376,7 @@ fn context<'a>(
 fn refresh(force: bool) {
     let Some(ui) = window() else { return };
     let built = with_app(|app| {
+        let lang = i18n::from_code(&app.prefs.language);
         let changed = snapshot(app, force);
         let snap = app.snap.take()?;
         let layout: Vec<(String, i32)> = app
@@ -1272,20 +1409,29 @@ fn refresh(force: bool) {
                 .collect();
             grids.push((built, targets));
         }
-        let subtitle = format!(
-            "{} · {} matches read",
-            snap.player.clone().unwrap_or_else(|| "Your replays".into()),
-            snap.matches
-        );
-        let stats_subtitle = format!(
-            "Computed from {} matches and your corrections",
-            snap.matches
-        );
+        let who = snap
+            .player
+            .clone()
+            .unwrap_or_else(|| lang.t("Your replays", "Seus replays").into());
+        let subtitle = match lang {
+            i18n::Lang::En => format!("{who} · {} matches read", snap.matches),
+            i18n::Lang::PtBr => format!("{who} · {} partidas lidas", snap.matches),
+        };
+        let stats_subtitle = match lang {
+            i18n::Lang::En => format!(
+                "Computed from {} and your corrections",
+                lang.matches_count(snap.matches)
+            ),
+            i18n::Lang::PtBr => format!(
+                "Calculado com base em {} e suas correções",
+                lang.matches_count(snap.matches)
+            ),
+        };
         app.snap = Some(snap);
         let missing: Vec<SharedString> = prefs::WIDGETS
             .iter()
             .filter(|(id, _)| !app.prefs.layout.iter().any(|i| i.id == *id))
-            .map(|(id, _)| SharedString::from(cards::title_of(id).0))
+            .map(|(id, _)| SharedString::from(cards::title_of(id, lang).0))
             .collect();
         Some((
             grids,
@@ -1299,7 +1445,8 @@ fn refresh(force: bool) {
     .flatten();
     let Some((grids, subtitle, stats_subtitle, changed, missing, columns)) = built else {
         let error = with_app(|a| a.store_error.clone()).flatten();
-        ui.set_overview_subtitle(error.unwrap_or_else(|| "No ledger yet".into()).into());
+        let fallback = current_lang().t("No ledger yet", "Nenhum registro ainda");
+        ui.set_overview_subtitle(error.unwrap_or_else(|| fallback.into()).into());
         refresh_status();
         return;
     };
@@ -1381,6 +1528,7 @@ fn refresh_marks(ui: &AppWindow) {
         let (Some(store), Some(snap)) = (app.store.as_ref(), app.snap.as_ref()) else {
             return;
         };
+        let lang = i18n::from_code(&app.prefs.language);
         let broken = app.config.count_broken();
         for (target, id) in [
             ("detail", Some(app.pages.selected_match.clone())),
@@ -1390,7 +1538,7 @@ fn refresh_marks(ui: &AppWindow) {
                 continue;
             };
             let marks = store.match_marks(&row.id, broken).unwrap_or_default();
-            pages::set_detail_marks(ui, &marks, row.seconds, &app.theme, target);
+            pages::set_detail_marks(ui, &marks, row.seconds, &app.theme, lang, target);
         }
     });
 }
@@ -1403,6 +1551,7 @@ fn changed_data() {
 
 fn page_action(action: &str) {
     let Some(ui) = window() else { return };
+    let l = current_lang();
     let selected = with_app(|a| a.pages.selected_entry.clone()).unwrap_or_default();
     match action {
         "correct" => {
@@ -1422,7 +1571,7 @@ fn page_action(action: &str) {
                     g.set_correct_reason(entry.reason.into());
                     g.set_correcting(true);
                 }
-                None => snack("Select an opening first"),
+                None => snack(l.t("Select an opening first", "Selecione uma abertura primeiro")),
             }
             return;
         }
@@ -1438,9 +1587,15 @@ fn page_action(action: &str) {
             .unwrap_or_default();
             if rows.is_empty() {
                 snack(if openings {
-                    "No openings match the current filters"
+                    l.t(
+                        "No openings match the current filters",
+                        "Nenhuma abertura corresponde aos filtros",
+                    )
                 } else {
-                    "No teammates in this view"
+                    l.t(
+                        "No teammates in this view",
+                        "Nenhum colega nesta visualização",
+                    )
                 });
                 return;
             }
@@ -1464,9 +1619,14 @@ fn page_action(action: &str) {
                 };
                 if report(lootledger_core::store::export_rows(&path, &rows, fields)).is_some() {
                     snack(format!(
-                        "Exported {} {}",
+                        "{} {} {}",
+                        l.t("Exported", "Exportado:"),
                         rows.len(),
-                        if openings { "openings" } else { "people" }
+                        if openings {
+                            l.t("openings", "aberturas")
+                        } else {
+                            l.t("people", "pessoas")
+                        }
                     ));
                 }
             }
@@ -1475,20 +1635,31 @@ fn page_action(action: &str) {
         _ => {}
     }
     let result: Result<Option<String>, String> = with_app(|app| {
-        let store = app.store.as_mut().ok_or("The ledger is not open")?;
+        let store = app.store.as_mut().ok_or_else(|| {
+            l.t("The ledger is not open", "O registro não está aberto")
+                .to_owned()
+        })?;
         let e = |e: lootledger_core::store::Error| e.to_string();
         match action {
-            "undo" => Ok(store
-                .undo()
-                .map_err(e)?
-                .then(|| "Last opening removed".to_owned())),
+            "undo" => Ok(store.undo().map_err(e)?.then(|| {
+                l.t("Last opening removed", "Última abertura removida")
+                    .to_owned()
+            })),
             "add" => store
                 .add_correction(1, "Chest")
-                .map(|_| Some("Added one chest to the latest match".to_owned()))
+                .map(|_| {
+                    Some(
+                        l.t(
+                            "Added one chest to the latest match",
+                            "Um baú adicionado à última partida",
+                        )
+                        .to_owned(),
+                    )
+                })
                 .map_err(e),
-            "remove" | "restore" | "apply-correct" if selected.is_empty() => {
-                Err("Select an opening first".into())
-            }
+            "remove" | "restore" | "apply-correct" if selected.is_empty() => Err(l
+                .t("Select an opening first", "Selecione uma abertura primeiro")
+                .into()),
             "remove" => store
                 .edit(&selected, Some("undone"), None, None)
                 .map(|_| None)
@@ -1646,49 +1817,91 @@ fn refresh_live() {
 fn refresh_status() {
     let Some(ui) = window() else { return };
     with_app(|app| {
+        let lang = i18n::from_code(&app.prefs.language);
         let partial = app.snap.as_ref().map_or(0, |s| s.partial);
         let (mut text, tone) = if let Some(e) = &app.scan_error {
             (e.clone(), 3)
         } else if let Some(e) = &app.store_error {
             (e.clone(), 3)
-        } else if !app.scan_note.is_empty() {
-            (app.scan_note.clone(), 0)
+        } else if !matches!(app.scan_note, ScanNote::None) {
+            let note = match app.scan_note {
+                ScanNote::None => String::new(),
+                ScanNote::WaitingFirst => lang
+                    .t(
+                        "Waiting for the first replay check",
+                        "Aguardando a primeira verificação de replays",
+                    )
+                    .to_owned(),
+                ScanNote::Checking => lang
+                    .t("Checking replays…", "Verificando replays…")
+                    .to_owned(),
+                ScanNote::Reading(done, total) => match lang {
+                    i18n::Lang::En => format!("Reading replays {done}/{total}…"),
+                    i18n::Lang::PtBr => format!("Lendo replays {done}/{total}…"),
+                },
+            };
+            (note, 0)
         } else if app.tracker.state == live::State::Live {
             (
                 if app.tracker.locked() {
-                    "Match in progress · its chests are counted when it ends (Fortnite encrypts the replay until then)".to_owned()
+                    lang.t(
+                        "Match in progress · its chests are counted when it ends (Fortnite encrypts the replay until then)",
+                        "Partida em andamento · os baús são contados ao terminar (o Fortnite criptografa o replay até lá)",
+                    )
+                    .to_owned()
                 } else {
-                    "Match in progress".to_owned()
+                    lang.t("Match in progress", "Partida em andamento")
+                        .to_owned()
                 },
                 2,
             )
         } else {
+            let folder = app.config.replay_folder();
             (
-                format!(
-                    "Watching {} · finished matches are added automatically",
-                    app.config.replay_folder().display()
-                ),
+                match lang {
+                    i18n::Lang::En => format!(
+                        "Watching {} · finished matches are added automatically",
+                        folder.display()
+                    ),
+                    i18n::Lang::PtBr => format!(
+                        "Monitorando {} · partidas finalizadas são adicionadas automaticamente",
+                        folder.display()
+                    ),
+                },
                 0,
             )
         };
         if partial > 0 && app.scan_error.is_none() {
-            text += &format!(" · {partial} replay(s) read partly (see Matches)");
+            text += &match lang {
+                i18n::Lang::En => format!(" · {partial} replay(s) read partly (see Matches)"),
+                i18n::Lang::PtBr => {
+                    format!(" · {partial} replay(s) lido(s) parcialmente (veja Partidas)")
+                }
+            };
         }
         if let Some(t) = app.last_scan {
-            text += &format!(" · checked {}", t.format("%H:%M:%S"));
+            text += &format!(
+                " · {} {}",
+                lang.t("checked", "verificado às"),
+                t.format("%H:%M:%S")
+            );
         }
         ui.set_status(text.into());
         ui.set_status_tone(tone);
         let (chip, chip_tone) = match app.tracker.state {
             live::State::Live => (
                 format!(
-                    "Live · {}",
+                    "{} · {}",
+                    lang.t("Live", "Ao vivo"),
                     prefs::elapsed(app.tracker.elapsed().unwrap_or(0.0))
                 ),
                 1,
             ),
-            live::State::Saving => ("Reading the replay…".to_owned(), 2),
-            live::State::Ended => ("Match counted".to_owned(), 3),
+            live::State::Saving => (
+                lang.t("Reading the replay…", "Lendo o replay…").to_owned(),
+                2,
+            ),
+            live::State::Ended => (lang.t("Match counted", "Partida contada").to_owned(), 3),
             _ => (String::new(), 0),
         };
         ui.set_live_chip(chip.into());
@@ -1805,7 +2018,10 @@ fn wire(ui: &AppWindow) {
                 Some(day) => {
                     with_app(|a| a.compare[grid][(slot as usize).min(3)] = day);
                 }
-                None => snack("Use the date format from Settings → Formats"),
+                None => snack(current_lang().t(
+                    "Use the date format from Settings → Formats",
+                    "Use o formato de data de Configurações → Formatos",
+                )),
             }
             refresh(false);
         });
@@ -1950,10 +2166,11 @@ fn open_path(path: &Path) {
 }
 
 fn settings_action(action: &str) {
+    let l = current_lang();
     match action {
         "browse-folder" => {
             if let Some(folder) = rfd::FileDialog::new()
-                .set_title("Choose the replay folder")
+                .set_title(l.t("Choose the replay folder", "Escolha a pasta de replays"))
                 .pick_folder()
             {
                 set_setting("replay_folder", &folder.to_string_lossy());
@@ -1967,7 +2184,10 @@ fn settings_action(action: &str) {
         "rescan" => {
             let busy = with_app(|a| a.scanning).unwrap_or(true);
             if busy {
-                snack("A replay check is running; try again in a moment");
+                snack(l.t(
+                    "A replay check is running; try again in a moment",
+                    "Uma verificação de replays está em andamento; tente em instantes",
+                ));
                 return;
             }
             if let Some(Some(r)) = with_app(|a| a.store.as_mut().map(|s| s.forget_replay_files())) {
@@ -1984,7 +2204,7 @@ fn settings_action(action: &str) {
                 && let Some(Some(r)) = with_app(|a| a.store.as_ref().map(|s| s.export(&path)))
                 && report(r).is_some()
             {
-                snack("Ledger exported");
+                snack(l.t("Ledger exported", "Registro exportado"));
             }
         }
         "Create backup" => {
@@ -1993,23 +2213,26 @@ fn settings_action(action: &str) {
             if let Some(path) = rfd::FileDialog::new()
                 .set_directory(start)
                 .set_file_name(name)
-                .add_filter("Ledger backup", &["sqlite"])
+                .add_filter(l.t("Ledger backup", "Backup do registro"), &["sqlite"])
                 .save_file()
                 && let Some(Some(r)) = with_app(|a| a.store.as_ref().map(|s| s.backup(&path)))
                 && report(r).is_some()
             {
-                snack("Backup created");
+                snack(l.t("Backup created", "Backup criado"));
             }
         }
         "Restore backup" => {
             let start = with_app(|a| a.folder.join("backups")).unwrap_or_default();
             if let Some(path) = rfd::FileDialog::new()
                 .set_directory(start)
-                .add_filter("Ledger backup", &["sqlite"])
+                .add_filter(l.t("Ledger backup", "Backup do registro"), &["sqlite"])
                 .pick_file()
                 && confirm(
-                    "Restore this backup?",
-                    "Your current ledger is saved first, so you can go back.",
+                    l.t("Restore this backup?", "Restaurar este backup?"),
+                    l.t(
+                        "Your current ledger is saved first, so you can go back.",
+                        "Seu registro atual é salvo antes, para você poder voltar.",
+                    ),
                 )
                 && let Some(Some(r)) = with_app(|a| a.store.as_mut().map(|s| s.restore(&path)))
                 && let Some(safety) = report(r)
@@ -2017,7 +2240,11 @@ fn settings_action(action: &str) {
                 with_app(|a| a.snap_key = None);
                 refresh(true);
                 snack(format!(
-                    "Backup restored. Your previous ledger was saved as {}",
+                    "{} {}",
+                    l.t(
+                        "Backup restored. Your previous ledger was saved as",
+                        "Backup restaurado. Seu registro anterior foi salvo em",
+                    ),
                     safety.display()
                 ));
             }
@@ -2030,7 +2257,7 @@ fn settings_action(action: &str) {
         "Export settings" => {
             if let Some(path) = rfd::FileDialog::new()
                 .set_file_name("lootledger-settings.json")
-                .add_filter("LootLedger settings", &["json"])
+                .add_filter(l.t("LootLedger settings", "Configurações do LootLedger"), &["json"])
                 .save_file()
             {
                 let payload = with_app(|a| {
@@ -2045,20 +2272,23 @@ fn settings_action(action: &str) {
                     ))
                     .is_some()
                 {
-                    snack("Settings exported");
+                    snack(l.t("Settings exported", "Configurações exportadas"));
                 }
             }
         }
         "Import settings" => {
             if let Some(path) = rfd::FileDialog::new()
-                .add_filter("LootLedger settings", &["json"])
+                .add_filter(l.t("LootLedger settings", "Configurações do LootLedger"), &["json"])
                 .pick_file()
             {
                 let data: Option<Value> = std::fs::read(&path)
                     .ok()
                     .and_then(|b| serde_json::from_slice(&b).ok());
                 let Some(data) = data.filter(|d| d["app"] == "LootLedger") else {
-                    snack("That file is not a LootLedger settings file.");
+                    snack(l.t(
+                        "That file is not a LootLedger settings file.",
+                        "Esse arquivo não é uma configuração do LootLedger.",
+                    ));
                     return;
                 };
                 let result = with_app(|a| -> Result<(), String> {
@@ -2078,11 +2308,15 @@ fn settings_action(action: &str) {
                         .map_err(|e| e.to_string())
                 });
                 if report(result.unwrap_or(Ok(()))).is_some() {
+                    let lang = current_lang();
+                    if let Some(ui) = window() {
+                        i18n::apply(&ui, lang);
+                    }
                     apply_theme();
                     fill_settings();
                     with_app(|a| a.snap_key = None);
                     refresh(true);
-                    snack("Settings imported");
+                    snack(lang.t("Settings imported", "Configurações importadas"));
                 }
             }
         }
@@ -2090,22 +2324,36 @@ fn settings_action(action: &str) {
         "Check for updates" => check_update(true),
         "Clear all data" => {
             if confirm(
-                "Clear all matches and openings?",
-                "A backup is saved first. Replay files stay on your PC and are not read again until you choose Read all replays again.",
+                l.t(
+                    "Clear all matches and openings?",
+                    "Limpar todas as partidas e aberturas?",
+                ),
+                l.t(
+                    "A backup is saved first. Replay files stay on your PC and are not read again until you choose Read all replays again.",
+                    "Um backup é salvo antes. Os arquivos de replay continuam no PC e só serão lidos novamente se você escolher Ler todos os replays.",
+                ),
             ) && let Some(Some(r)) = with_app(|a| a.store.as_mut().map(|s| s.clear()))
                 && let Some(safety) = report(r)
             {
                 with_app(|a| a.snap_key = None);
                 refresh(true);
-                snack(format!("All data cleared. Backup: {}", safety.display()));
+                snack(format!(
+                    "{} {}",
+                    l.t("All data cleared. Backup:", "Todos os dados foram limpos. Backup:"),
+                    safety.display()
+                ));
             }
         }
         "What's new" => {
-            let rows = WHATS_NEW
+            let rows = whats_new(l)
                 .iter()
                 .map(|line| vec![(format!("•  {line}"), 4)])
                 .collect();
-            info(&format!("What's new in {VERSION}"), rows, "");
+            info(
+                &format!("{} {VERSION}", l.t("What's new in", "Novidades no")),
+                rows,
+                "",
+            );
         }
         _ => {}
     }
@@ -2124,19 +2372,20 @@ fn confirm(title: &str, text: &str) -> bool {
 
 // ---- Command palette, shortcuts and startup dialogs --------------------------------------------
 
-const PAGE_NAMES: [&str; 6] = [
-    "Overview",
-    "Matches",
-    "Openings",
-    "Statistics",
-    "Teammates",
-    "Settings",
-];
-const WHATS_NEW: [&str; 3] = [
-    "The Session overview card is simpler and easier to read: your chests, four numbers (matches, time, chests per match and per hour), your best match and a small chart.",
-    "A session is a run of matches less than 30 minutes apart. When you are not playing, the card shows your last session.",
-    "Your data still never leaves this PC; only the version check and the download go over the internet.",
-];
+fn whats_new(lang: i18n::Lang) -> [&'static str; 3] {
+    match lang {
+        i18n::Lang::En => [
+            "The Session overview card is simpler and easier to read: your chests, four numbers (matches, time, chests per match and per hour), your best match and a small chart.",
+            "A session is a run of matches less than 30 minutes apart. When you are not playing, the card shows your last session.",
+            "Your data still never leaves this PC; only the version check and the download go over the internet.",
+        ],
+        i18n::Lang::PtBr => [
+            "O cartão Resumo da sessão está mais simples e fácil de ler: seus baús, quatro números (partidas, tempo, baús por partida e por hora), sua melhor partida e um gráfico compacto.",
+            "Uma sessão é uma sequência de partidas com menos de 30 minutos de intervalo. Quando não estiver jogando, o cartão mostra sua última sessão.",
+            "Seus dados continuam sem sair deste PC; apenas a verificação de versão e o download usam a internet.",
+        ],
+    }
+}
 
 #[derive(Clone)]
 enum Command {
@@ -2152,39 +2401,99 @@ enum Command {
 }
 
 fn commands(app: &App) -> Vec<(String, Command)> {
-    let mut items: Vec<(String, Command)> = PAGE_NAMES
-        .iter()
-        .enumerate()
-        .map(|(i, n)| (format!("Go to {n}"), Command::Page(i as i32)))
+    let l = i18n::from_code(&app.prefs.language);
+    let mut items: Vec<(String, Command)> = (0..6)
+        .map(|i| {
+            (
+                format!("{} {}", l.t("Go to", "Ir para"), l.page_name(i)),
+                Command::Page(i as i32),
+            )
+        })
         .collect();
-    for value in ["light", "dark", "system"] {
-        items.push((format!("Theme: {value}"), Command::Pref("theme", value)));
-    }
-    for value in ["full", "reduced", "off"] {
+    for (value, label) in [
+        ("light", l.t("Light", "Claro")),
+        ("dark", l.t("Dark", "Escuro")),
+        ("system", l.t("System", "Sistema")),
+    ] {
         items.push((
-            format!("Animations: {value}"),
+            format!("{}: {label}", l.t("Theme", "Tema")),
+            Command::Pref("theme", value),
+        ));
+    }
+    for (value, label) in [
+        ("full", l.t("Full", "Completas")),
+        ("reduced", l.t("Reduced", "Reduzidas")),
+        ("off", l.t("Off", "Desativadas")),
+    ] {
+        items.push((
+            format!("{}: {label}", l.t("Animations", "Animações")),
             Command::Pref("motion", value),
         ));
     }
     let p = &app.prefs;
     for (name, title, on) in [
-        ("overlay", "Pop-out counter", p.overlay),
-        ("live_tracking", "Track the current match", p.live_tracking),
-        ("colorblind", "Colourblind-safe chest colours", p.colorblind),
-        ("sound", "Sound when a match is counted", p.sound),
-        ("match_popup", "Pop-up after each match", p.match_popup),
+        (
+            "overlay",
+            l.t("Pop-out counter", "Contador flutuante"),
+            p.overlay,
+        ),
+        (
+            "live_tracking",
+            l.t("Track the current match", "Monitorar a partida atual"),
+            p.live_tracking,
+        ),
+        (
+            "colorblind",
+            l.t(
+                "Colourblind-safe chest colours",
+                "Cores seguras para daltonismo",
+            ),
+            p.colorblind,
+        ),
+        (
+            "sound",
+            l.t("Sound when a match is counted", "Som ao contar partida"),
+            p.sound,
+        ),
+        (
+            "match_popup",
+            l.t("Pop-up after each match", "Pop-up após cada partida"),
+            p.match_popup,
+        ),
     ] {
-        items.push((
-            format!("{title}: turn {}", if on { "off" } else { "on" }),
-            Command::Toggle(name),
-        ));
+        let state = match (l, on) {
+            (i18n::Lang::En, true) => "turn off",
+            (i18n::Lang::En, false) => "turn on",
+            (i18n::Lang::PtBr, true) => "desativar",
+            (i18n::Lang::PtBr, false) => "ativar",
+        };
+        items.push((format!("{title}: {state}"), Command::Toggle(name)));
     }
-    items.push(("Check for new replays now".into(), Command::Scan));
-    items.push(("Keyboard shortcuts".into(), Command::Shortcuts));
-    items.push(("Copy summary image".into(), Command::Image(true)));
-    items.push(("Save summary image…".into(), Command::Image(false)));
-    items.push(("Copy weekly recap".into(), Command::Recap(true)));
-    items.push(("Save weekly recap…".into(), Command::Recap(false)));
+    items.push((
+        l.t("Check for new replays now", "Buscar novos replays agora")
+            .into(),
+        Command::Scan,
+    ));
+    items.push((
+        l.t("Keyboard shortcuts", "Atalhos de teclado").into(),
+        Command::Shortcuts,
+    ));
+    items.push((
+        l.t("Copy summary image", "Copiar imagem resumo").into(),
+        Command::Image(true),
+    ));
+    items.push((
+        l.t("Save summary image…", "Salvar imagem resumo…").into(),
+        Command::Image(false),
+    ));
+    items.push((
+        l.t("Copy weekly recap", "Copiar resumo semanal").into(),
+        Command::Recap(true),
+    ));
+    items.push((
+        l.t("Save weekly recap…", "Salvar resumo semanal…").into(),
+        Command::Recap(false),
+    ));
     if let Some(snap) = &app.snap {
         for row in snap.match_rows.iter().take(200) {
             let tags = if row.tags.is_empty() {
@@ -2194,17 +2503,19 @@ fn commands(app: &App) -> Vec<(String, Command)> {
             };
             items.push((
                 format!(
-                    "Match: {} · {} · {} chests{tags}",
-                    row.mode,
+                    "{}: {} · {} · {} {}{tags}",
+                    l.t("Match", "Partida"),
+                    l.mode_name(&row.mode),
                     p.when(row.when),
-                    row.count
+                    p.int(row.count),
+                    l.chest_word(row.count)
                 ),
                 Command::Match(row.id.clone()),
             ));
         }
         for person in snap.board.iter().filter(|x| !x.me) {
             items.push((
-                format!("Teammate: {}", person.name),
+                format!("{}: {}", l.t("Teammate", "Colega"), person.name),
                 Command::Teammate(person.key.clone()),
             ));
         }
@@ -2328,12 +2639,13 @@ fn info(title: &str, rows: Vec<Vec<(String, i32)>>, note: &str) {
 }
 
 fn show_shortcuts() {
-    let Some((add, undo, overlay, busy)) = with_app(|a| {
+    let Some((add, undo, overlay, busy, l)) = with_app(|a| {
         (
             a.config.hotkey("hotkey_add"),
             a.config.hotkey("hotkey_undo"),
             a.prefs.hotkey_overlay.clone(),
             a.hotkeys_busy.clone(),
+            i18n::from_code(&a.prefs.language),
         )
     }) else {
         return;
@@ -2341,29 +2653,45 @@ fn show_shortcuts() {
     let mut rows = vec![
         vec![
             ("Ctrl+1 … Ctrl+6".to_owned(), 1),
-            ("Go to a page".to_owned(), 0),
+            (l.t("Go to a page", "Ir para uma página").to_owned(), 0),
         ],
         vec![
             ("Ctrl+K".to_owned(), 1),
             (
-                "Command palette: pages, matches, teammates, settings".to_owned(),
+                l.t(
+                    "Command palette: pages, matches, teammates, settings",
+                    "Paleta de comandos: páginas, partidas, colegas, configurações",
+                )
+                .to_owned(),
                 0,
             ),
         ],
-        vec![("? or F1".to_owned(), 1), ("This list".to_owned(), 0)],
-        vec![("Esc".to_owned(), 1), ("Close a dialog".to_owned(), 0)],
+        vec![
+            (l.t("? or F1", "? ou F1").to_owned(), 1),
+            (l.t("This list", "Esta lista").to_owned(), 0),
+        ],
+        vec![
+            ("Esc".to_owned(), 1),
+            (l.t("Close a dialog", "Fechar diálogo").to_owned(), 0),
+        ],
     ];
     for (name, text) in [
-        ("Add one chest", add),
-        ("Undo last chest", undo),
-        ("Show or hide the counter", overlay),
+        (l.t("Add one chest", "Adicionar um baú"), add),
+        (l.t("Undo last chest", "Desfazer último baú"), undo),
+        (
+            l.t("Show or hide the counter", "Mostrar ou ocultar contador"),
+            overlay,
+        ),
     ] {
         let state = if text.trim().is_empty() {
-            "off"
+            l.t("off", "desativado")
         } else if busy.contains(&text) {
-            "used by another app, so off"
+            l.t(
+                "used by another app, so off",
+                "usado por outro app, desativado",
+            )
         } else {
-            "works in any app"
+            l.t("works in any app", "funciona em qualquer app")
         };
         rows.push(vec![
             (
@@ -2378,21 +2706,25 @@ fn show_shortcuts() {
         ]);
     }
     info(
-        "Keyboard shortcuts",
+        l.t("Keyboard shortcuts", "Atalhos de teclado"),
         rows,
-        "Global shortcuts can be changed in Settings → Shortcuts. They only notice the keys; nothing is sent to Fortnite.",
+        l.t(
+            "Global shortcuts can be changed in Settings → Shortcuts. They only notice the keys; nothing is sent to Fortnite.",
+            "Atalhos globais podem ser alterados em Configurações → Atalhos. Eles apenas detectam as teclas; nada é enviado ao Fortnite.",
+        ),
     );
 }
 
 /// Onboarding the first time (a checklist), "What's new" after an update. Each is shown once.
 fn startup_dialog() {
-    let Some((seen, matches, checks)) = with_app(|app| {
+    let Some((seen, matches, checks, l)) = with_app(|app| {
         let seen = std::mem::replace(&mut app.prefs.seen_version, VERSION.to_owned());
         let _ = app.prefs.save(&app.folder.join("ui-settings.json"));
         (
             seen,
             app.snap.as_ref().map_or(0, |s| s.matches),
             health(app).checks,
+            i18n::from_code(&app.prefs.language),
         )
     }) else {
         return;
@@ -2408,26 +2740,37 @@ fn startup_dialog() {
                 if ok { 1 } else { 3 },
             )]);
             if !ok {
-                rows.push(vec![(format!("Fix it: {fix}"), 0)]);
+                rows.push(vec![(
+                    format!("{}: {fix}", l.t("Fix it", "Como corrigir")),
+                    0,
+                )]);
             }
         }
         info(
-            "Set up in one step",
+            l.t("Set up in one step", "Configure em uma etapa"),
             rows,
-            "Then just play. Finished matches are counted automatically; the Overview shows when a match is live.",
+            l.t(
+                "Then just play. Finished matches are counted automatically; the Overview shows when a match is live.",
+                "Depois é só jogar. Partidas terminadas são contadas automaticamente; a Visão geral mostra quando há uma partida ao vivo.",
+            ),
         );
     } else {
-        let rows = WHATS_NEW
+        let rows = whats_new(l)
             .iter()
             .map(|line| vec![(format!("•  {line}"), 4)])
             .collect();
-        info(&format!("What's new in {VERSION}"), rows, "");
+        info(
+            &format!("{} {VERSION}", l.t("What's new in", "Novidades no")),
+            rows,
+            "",
+        );
     }
 }
 
 /// Celebrate a reached goal or a new trophy once, inside LootLedger only (nothing leaves this PC).
 fn announce() {
     let news = with_app(|app| {
+        let lang = i18n::from_code(&app.prefs.language);
         let snap = app.snap.as_ref()?;
         let mut news = Vec::new();
         let unlocked: Vec<_> = lootledger_core::stats::achievements(snap)
@@ -2441,11 +2784,13 @@ fn announce() {
         let mut changed = false;
         if !fresh.is_empty() {
             if !app.prefs.trophies.is_empty() || snap.matches == 0 {
-                news.extend(
-                    fresh
-                        .iter()
-                        .map(|a| format!("Trophy unlocked: {}", a.title)),
-                );
+                news.extend(fresh.iter().map(|a| {
+                    let (title, _) = lang.achievement(&a.id, &a.title, &a.detail);
+                    format!(
+                        "{}: {title}",
+                        lang.t("Trophy unlocked", "Troféu desbloqueado")
+                    )
+                }));
             }
             app.prefs.trophies = unlocked.iter().map(|a| a.id.clone()).collect(); // first run: marked silently
             changed = true;
@@ -2463,10 +2808,12 @@ fn announce() {
                 app.prefs.celebrated.push(key);
                 let excess = app.prefs.celebrated.len().saturating_sub(20);
                 app.prefs.celebrated.drain(..excess);
+                let gname = lang.goal_name(goal.name).to_lowercase();
                 news.push(format!(
-                    "Goal reached: {} chests {}",
+                    "{}: {} {} {gname}",
+                    lang.t("Goal reached", "Meta alcançada"),
                     goal.target,
-                    goal.name.to_lowercase()
+                    lang.chest_word(goal.target)
                 ));
                 changed = true;
             }
@@ -2686,6 +3033,7 @@ fn refresh_overlay() {
     let Some(ui) = window() else { return };
     let Some((heading, count, lines)) = with_app(|app| {
         let p = &app.prefs;
+        let lang = i18n::from_code(&p.language);
         let snap = app.snap.as_ref()?;
         let view = live_view(app);
         if app.tracker.state == live::State::Live {
@@ -2694,12 +3042,20 @@ fn refresh_overlay() {
                 _ => "…".into(),
             };
             let lines = if view.locked {
-                "Chests appear when the match ends".to_owned()
+                lang.t(
+                    "Chests appear when the match ends",
+                    "Os baús aparecem quando a partida termina",
+                )
+                .to_owned()
             } else {
                 String::new()
             };
             return Some((
-                format!("Live · {}", prefs::elapsed(view.elapsed.unwrap_or(0.0))),
+                format!(
+                    "{} · {}",
+                    lang.t("Live", "Ao vivo"),
+                    prefs::elapsed(view.elapsed.unwrap_or(0.0))
+                ),
                 count,
                 lines,
             ));
@@ -2707,9 +3063,12 @@ fn refresh_overlay() {
         let row = view.ended.as_ref().or(snap.last.as_ref());
         let squad_match = row.map_or(0, |r| r.squad_total.max(r.count));
         let mut lines = vec![format!(
-            "Today: {} · Session: {} · Squad (match): {}",
+            "{}: {} · {}: {} · {}: {}",
+            lang.t("Today", "Hoje"),
             p.int(snap.today),
+            lang.t("Session", "Sessão"),
             p.int(snap.session),
+            lang.t("Squad (match)", "Esquadrão (partida)"),
             p.int(squad_match)
         )];
         let mates: Vec<String> = row
@@ -2732,15 +3091,17 @@ fn refresh_overlay() {
             "0.0%".into()
         };
         lines.push(format!(
-            "Squad (total): {} · Token chance: {}",
+            "{}: {} · {}: {}",
+            lang.t("Squad (total)", "Esquadrão (total)"),
             p.int(summary.total_chests_squad),
+            lang.t("Token chance", "Chance de Token"),
             pct
         ));
         Some((
             if view.ended.is_some() {
-                "This match"
+                lang.t("This match", "Esta partida")
             } else {
-                "Last match"
+                lang.t("Last match", "Última partida")
             }
             .to_owned(),
             row.map_or("–".to_owned(), |r| p.int(r.count)),
@@ -2836,7 +3197,11 @@ fn configure_hotkeys() {
             Ok(busy) => {
                 if !busy.is_empty() {
                     snack(format!(
-                        "Shortcut already used by another app, so it is off: {}",
+                        "{}: {}",
+                        current_lang().t(
+                            "Shortcut already used by another app, so it is off",
+                            "Atalho já usado por outro app, por isso está desativado",
+                        ),
                         busy.join(", ")
                     ));
                 }
@@ -2865,18 +3230,29 @@ fn share_summary(copy: bool) {
 /// The 1200×630 share card: all-time totals, or this week's recap (`week`). Drawn locally.
 fn share_image(week: bool, copy: bool) {
     let Some(ui) = window() else { return };
+    let l = current_lang();
     let Some((heading, total, caption, names, values, footer)) = with_app(|app| {
         let (snap, p) = (app.snap.as_ref()?, &app.prefs);
-        let player = snap.player.clone().unwrap_or_else(|| "My chests".into());
+        let lang = i18n::from_code(&p.language);
+        let player = snap
+            .player
+            .clone()
+            .unwrap_or_else(|| lang.t("My chests", "Meus baús").into());
         if !week {
             let mate = snap.board.iter().find(|m| !m.me && !m.unranked);
             return Some((
                 format!("LootLedger · {player}"),
                 p.int(snap.all),
-                "chests opened, all time".to_owned(),
-                ["Today", "Best match", "Matches", "Top teammate"]
-                    .map(String::from)
-                    .to_vec(),
+                lang.t("chests opened, all time", "baús abertos no total")
+                    .to_owned(),
+                [
+                    lang.t("Today", "Hoje"),
+                    lang.t("Best match", "Melhor partida"),
+                    lang.t("Matches", "Partidas"),
+                    lang.t("Top teammate", "Melhor colega"),
+                ]
+                .map(String::from)
+                .to_vec(),
                 vec![
                     p.int(snap.today),
                     p.int(snap.best.unwrap_or(0)),
@@ -2884,8 +3260,12 @@ fn share_image(week: bool, copy: bool) {
                     mate.map_or("–".into(), |m| format!("{} · {}", m.name, p.int(m.total))),
                 ],
                 format!(
-                    "{} · counted from my Fortnite replays",
-                    Local::now().format("%d %b %Y")
+                    "{} · {}",
+                    lang.day_month_year(Local::now().date_naive(), true),
+                    lang.t(
+                        "counted from my Fortnite replays",
+                        "contados dos meus replays do Fortnite",
+                    )
                 ),
             ));
         }
@@ -2910,12 +3290,22 @@ fn share_image(week: bool, copy: bool) {
             "±"
         };
         Some((
-            format!("LootLedger · week of {} · {player}", p.short_date(monday)),
+            format!(
+                "{} {} · {player}",
+                lang.t("LootLedger · week of", "LootLedger · semana de"),
+                p.short_date(monday)
+            ),
             p.int(snap.week),
-            "chests opened this week".to_owned(),
-            ["Matches", "Best match", "vs last week", "Top teammate"]
-                .map(String::from)
-                .to_vec(),
+            lang.t("chests opened this week", "baús abertos nesta semana")
+                .to_owned(),
+            [
+                lang.t("Matches", "Partidas"),
+                lang.t("Best match", "Melhor partida"),
+                lang.t("vs last week", "vs semana passada"),
+                lang.t("Top teammate", "Melhor colega"),
+            ]
+            .map(String::from)
+            .to_vec(),
             vec![
                 p.int(rows.len() as i64),
                 best.map_or("–".into(), |b| p.int(b)),
@@ -2923,14 +3313,18 @@ fn share_image(week: bool, copy: bool) {
                 mate.map_or("–".into(), |m| format!("{} · {}", m.name, p.int(m.total))),
             ],
             format!(
-                "{} – {} · counted from my Fortnite replays",
-                monday.format("%d %b"),
-                today.format("%d %b %Y")
+                "{} – {} · {}",
+                lang.day_month_year(monday, false),
+                lang.day_month_year(today, true),
+                lang.t(
+                    "counted from my Fortnite replays",
+                    "contados dos meus replays do Fortnite",
+                )
             ),
         ))
     })
     .flatten() else {
-        snack("Nothing to share yet");
+        snack(l.t("Nothing to share yet", "Nada para compartilhar ainda"));
         return;
     };
     let tokens = ui.global::<Tokens>();
@@ -2955,10 +3349,14 @@ fn share_image(week: bool, copy: bool) {
     let _ = card.show();
     // One frame to render, then read the pixels back.
     Timer::single_shot(Duration::from_millis(150), move || {
+        let l = current_lang();
         let pixels = card.window().take_snapshot();
         let _ = card.hide();
         let Ok(pixels) = pixels else {
-            snack("Could not draw the summary image");
+            snack(l.t(
+                "Could not draw the summary image",
+                "Não foi possível gerar a imagem resumo",
+            ));
             return;
         };
         let (w, h) = (pixels.width(), pixels.height());
@@ -2971,9 +3369,9 @@ fn share_image(week: bool, copy: bool) {
             #[cfg(windows)]
             if report(native::copy_image(w, h, &rgba)).is_some() {
                 snack(if week {
-                    "Weekly recap copied"
+                    l.t("Weekly recap copied", "Resumo semanal copiado")
                 } else {
-                    "Summary image copied"
+                    l.t("Summary image copied", "Imagem resumo copiada")
                 });
             }
             return;
@@ -2993,7 +3391,7 @@ fn share_image(week: bool, copy: bool) {
                 } else {
                     "lootledger-summary.png"
                 })
-                .add_filter("PNG image", &["png"])
+                .add_filter(l.t("PNG image", "Imagem PNG"), &["png"])
                 .save_file()
         }) {
             let result = (|| -> Result<(), Box<dyn std::error::Error>> {
@@ -3006,9 +3404,9 @@ fn share_image(week: bool, copy: bool) {
             })();
             if report(result).is_some() {
                 snack(if week {
-                    "Weekly recap saved"
+                    l.t("Weekly recap saved", "Resumo semanal salvo")
                 } else {
-                    "Summary image saved"
+                    l.t("Summary image saved", "Imagem resumo salva")
                 });
             }
         }
@@ -3023,27 +3421,46 @@ fn check_update(manual: bool) {
         return;
     };
     if manual {
-        snack("Checking for updates…");
+        snack(current_lang().t("Checking for updates…", "Verificando atualizações…"));
     }
     std::thread::spawn(move || {
         let result = update::check(VERSION).and_then(|found| match found {
             Some(release) => update::download(&release, &exe).map(|_| Some(release.version)),
             None => Ok(None),
         });
-        let _ = slint::invoke_from_event_loop(move || match result {
-            Ok(Some(version)) => {
-                info(
-                    &format!("LootLedger {version} is ready"),
-                    vec![vec![("It installs itself when you close LootLedger. Restart now to use it right away.".to_owned(), 4)]],
-                    "Downloaded from this project's GitHub releases and checked against its published checksum.",
-                );
-                if let Some(ui) = window() {
-                    ui.set_info_action("Restart now".into());
+        let _ = slint::invoke_from_event_loop(move || {
+            let l = current_lang();
+            match result {
+                Ok(Some(version)) => {
+                    info(
+                        &format!("LootLedger {version} {}", l.t("is ready", "está pronto")),
+                        vec![vec![(
+                            l.t(
+                                "It installs itself when you close LootLedger. Restart now to use it right away.",
+                                "Ele é instalado automaticamente ao fechar o LootLedger. Reinicie agora para usar imediatamente.",
+                            )
+                            .to_owned(),
+                            4,
+                        )]],
+                        l.t(
+                            "Downloaded from this project's GitHub releases and checked against its published checksum.",
+                            "Baixado dos lançamentos no GitHub deste projeto e verificado pelo checksum publicado.",
+                        ),
+                    );
+                    if let Some(ui) = window() {
+                        ui.set_info_action(l.t("Restart now", "Reiniciar agora").into());
+                    }
                 }
+                Ok(None) if manual => snack(format!(
+                    "{} ({VERSION})",
+                    l.t(
+                        "You have the latest version",
+                        "Você já tem a versão mais recente"
+                    )
+                )),
+                Err(e) if manual => snack(e),
+                _ => {}
             }
-            Ok(None) if manual => snack(format!("You have the latest version ({VERSION})")),
-            Err(e) if manual => snack(e),
-            _ => {}
         });
     });
 }
@@ -3063,7 +3480,13 @@ fn install_update(restart: bool) {
             }
         }
         Ok(_) => {}
-        Err(e) => snack(format!("Could not install the update: {e}")),
+        Err(e) => snack(format!(
+            "{}: {e}",
+            current_lang().t(
+                "Could not install the update",
+                "Não foi possível instalar a atualização",
+            )
+        )),
     }
 }
 
@@ -3071,13 +3494,22 @@ const TREASURE_HOURS_URL: &str =
     "https://raw.githubusercontent.com/LED-N/Fortnite-ChestCounter/main/content/content.json";
 
 fn sync_treasure_hours(manual: bool) {
+    let l = current_lang();
     if manual {
-        snack("Syncing Treasure Hours…");
+        snack(l.t(
+            "Syncing Treasure Hours…",
+            "Sincronizando Horários do Tesouro…",
+        ));
     }
     std::thread::spawn(move || {
         let result = update::fetch_bytes(TREASURE_HOURS_URL).and_then(|bytes| {
-            let text = std::str::from_utf8(&bytes)
-                .map_err(|_| "Treasure Hours file was not valid UTF-8.".to_owned())?;
+            let text = std::str::from_utf8(&bytes).map_err(|_| {
+                l.t(
+                    "Treasure Hours file was not valid UTF-8.",
+                    "O arquivo de Horários do Tesouro não é UTF-8 válido.",
+                )
+                .to_owned()
+            })?;
             lootledger_core::stats::parse_ledn_treasure_hours(text)
         });
         let _ = slint::invoke_from_event_loop(move || match result {
@@ -3095,7 +3527,13 @@ fn sync_treasure_hours(manual: bool) {
                 fill_settings();
                 refresh(true);
                 if manual {
-                    snack(format!("Synced {count} Treasure Hours from GitHub"));
+                    let msg = match current_lang() {
+                        i18n::Lang::En => format!("Synced {count} Treasure Hours from GitHub"),
+                        i18n::Lang::PtBr => {
+                            format!("{count} Horários do Tesouro sincronizados do GitHub")
+                        }
+                    };
+                    snack(msg);
                 }
             }
             Err(e) if manual => snack(e),
@@ -3124,7 +3562,7 @@ fn add_treasure_hour(date: &str, start: &str, end: &str, boost: &str) {
             }
             fill_settings();
             refresh(true);
-            snack("Treasure Hour added");
+            snack(current_lang().t("Treasure Hour added", "Horário do Tesouro adicionado"));
         }
         Err(e) => snack(e),
     }
@@ -3145,6 +3583,9 @@ fn remove_treasure_hour(id: &str) {
         report(r);
         fill_settings();
         refresh(true);
-        snack("Custom Treasure Hour removed");
+        snack(current_lang().t(
+            "Custom Treasure Hour removed",
+            "Horário do Tesouro personalizado removido",
+        ));
     }
 }

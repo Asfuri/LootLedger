@@ -5,6 +5,7 @@ import { Icons } from "icons.slint";
 import { BarRow, ChartPoint, Mark } from "types.slint";
 import { Icon, IconButton, Button, Chip, TextField, Select, Stepper, SectionText } from "controls.slint";
 import { BarRows, SeriesChart, Timeline } from "charts.slint";
+import { I18n } from "i18n.slint";
 
 export struct Row { id: string, cells: [string], ink: color, has-ink: bool, share: float }
 
@@ -120,7 +121,7 @@ export component DataTable inherits Rectangle {
                     preferred-width: 0px;
                     background: head.has-hover ? Tokens.on-surface.with-alpha(0.06) : transparent;
                     accessible-role: button;
-                    accessible-label: "Sort by " + title;
+                    accessible-label: I18n.sort-by-prefix + title;
                     accessible-action-default => { sort(c); }
                     HorizontalLayout {
                         padding-left: Tokens.s;
@@ -202,31 +203,31 @@ export component MatchesPage inherits VerticalLayout {
         TextField {
             width: 260px;
             leading-icon: Icons.search;
-            placeholder: "Search mode, date, tag or note";
+            placeholder: I18n.matches-search-placeholder;
             text: Pages.match-search;
             edited(t) => { Pages.match-search = t; Pages.changed("matches"); }
         }
-        Select { options: Pages.ranges; current: Pages.match-range; label: "Date range"; changed(i) => { Pages.match-range = i; Pages.changed("matches"); } }
-        Select { options: Pages.modes; current: Pages.match-mode; label: "Game mode"; changed(i) => { Pages.match-mode = i; Pages.changed("matches"); } }
-        Select { options: Pages.types; current: Pages.match-type; label: "Chest type"; changed(i) => { Pages.match-type = i; Pages.changed("matches"); } }
+        Select { options: Pages.ranges; current: Pages.match-range; label: I18n.label-date-range; changed(i) => { Pages.match-range = i; Pages.changed("matches"); } }
+        Select { options: Pages.modes; current: Pages.match-mode; label: I18n.label-game-mode; changed(i) => { Pages.match-mode = i; Pages.changed("matches"); } }
+        Select { options: Pages.types; current: Pages.match-type; label: I18n.label-chest-type; changed(i) => { Pages.match-type = i; Pages.changed("matches"); } }
         Stepper {
             width: 200px;
             value: Pages.match-minimum;
             maximum: 999;
-            special: "Any count";
-            prefix: "At least ";
-            label: "Minimum chests";
+            special: I18n.any-count;
+            prefix: I18n.at-least-prefix;
+            label: I18n.label-min-chests;
             changed(v) => { Pages.match-minimum = v; Pages.changed("matches"); }
         }
-        Chip { text: "★ Favourites"; checked: Pages.match-favorites; toggled(on) => { Pages.match-favorites = on; Pages.changed("matches"); } }
+        Chip { text: I18n.chip-favorites; checked: Pages.match-favorites; toggled(on) => { Pages.match-favorites = on; Pages.changed("matches"); } }
     }
     Text { text: Pages.match-count; font-size: Tokens.body; color: Tokens.on-surface-variant; }
-    if Pages.match-empty: SectionText { text: "No matches yet. Turn on Record Replays in Fortnite, finish a match, and it appears here."; }
+    if Pages.match-empty: SectionText { text: I18n.matches-empty; }
     DataTable {
         vertical-stretch: Pages.selected-match != "" ? 2 : 1;
         min-height: 160px;
-        label: "Matches";
-        headers: ["Date", "Mode", "Place", "Chests", "Broken", "Teammates", "Ammo", "Length"];
+        label: I18n.nav-matches;
+        headers: I18n.match-headers;
         widths: [1.6, 1.8, 1, 0.8, 0.8, 1, 0.7, 0.8];
         left-columns: 2;
         rows: Pages.matches;
@@ -254,26 +255,26 @@ export component MatchesPage inherits VerticalLayout {
                 }
                 IconButton {
                     icon: Icons.star;
-                    tip: "Favourite match";
+                    tip: I18n.tip-favorite-match;
                     checked: Pages.detail-favorite;
                     clicked => { Pages.note("favorite", Pages.detail-favorite ? "false" : "true"); }
                 }
-                IconButton { icon: Icons.close; tip: "Close match details"; clicked => { Pages.select("matches", ""); } }
+                IconButton { icon: Icons.close; tip: I18n.tip-close-details; clicked => { Pages.select("matches", ""); } }
             }
             HorizontalLayout {
                 spacing: Tokens.s;
                 TextField {
                     horizontal-stretch: 1;
                     text: Pages.detail-tags;
-                    placeholder: "Tags, e.g. ranked, with randoms";
-                    label: "Match tags";
+                    placeholder: I18n.tags-placeholder;
+                    label: I18n.tags-label;
                     accepted(t) => { Pages.note("tags", t); }
                 }
                 TextField {
                     horizontal-stretch: 2;
                     text: Pages.detail-note;
-                    placeholder: "Note";
-                    label: "Match note";
+                    placeholder: I18n.note-placeholder;
+                    label: I18n.note-label;
                     accepted(t) => { Pages.note("note", t); }
                 }
             }
@@ -283,17 +284,17 @@ export component MatchesPage inherits VerticalLayout {
                 VerticalLayout {
                     horizontal-stretch: 1;
                     spacing: Tokens.xs;
-                    Text { text: "Openings during the match"; font-size: Tokens.label; font-weight: 600; color: Tokens.on-surface-variant; }
+                    Text { text: I18n.openings-during-match; font-size: Tokens.label; font-weight: 600; color: Tokens.on-surface-variant; }
                     Timeline { marks: Pages.detail-marks; end: Pages.detail-end; ink: Tokens.on-surface-variant; }
                 }
             }
-            Text { text: "Squad: what each player opened or broke"; font-size: Tokens.label; font-weight: 600; color: Tokens.on-surface-variant; }
+            Text { text: I18n.squad-breakdown-title; font-size: Tokens.label; font-weight: 600; color: Tokens.on-surface-variant; }
             if Pages.detail-squad-note != "": SectionText { text: Pages.detail-squad-note; }
             DataTable {
                 vertical-stretch: 1;
                 min-height: 120px;
-                label: "Squad";
-                headers: ["Player", "Chests", "Searched", "Broken open", "Share of squad", "Types"];
+                label: I18n.label-squad;
+                headers: I18n.squad-headers;
                 widths: [1.8, 0.7, 0.8, 0.9, 1.4, 2.6];
                 left-columns: 1;
                 share-column: 4;
@@ -312,19 +313,19 @@ export component OpeningsPage inherits VerticalLayout {
         TextField {
             width: 240px;
             leading-icon: Icons.search;
-            placeholder: "Search type or details";
+            placeholder: I18n.openings-search-placeholder;
             text: Pages.entry-search;
             edited(t) => { Pages.entry-search = t; Pages.changed("entries"); }
         }
-        Select { width: 320px; options: Pages.match-names; current: Pages.entry-match; label: "Match"; changed(i) => { Pages.entry-match = i; Pages.changed("entries"); } }
-        Select { options: Pages.types; current: Pages.entry-type; label: "Chest type"; changed(i) => { Pages.entry-type = i; Pages.changed("entries"); } }
-        Select { options: ["Counted", "Removed", "All statuses"]; current: Pages.entry-status; label: "Status"; changed(i) => { Pages.entry-status = i; Pages.changed("entries"); } }
+        Select { width: 320px; options: Pages.match-names; current: Pages.entry-match; label: I18n.label-match; changed(i) => { Pages.entry-match = i; Pages.changed("entries"); } }
+        Select { options: Pages.types; current: Pages.entry-type; label: I18n.label-chest-type; changed(i) => { Pages.entry-type = i; Pages.changed("entries"); } }
+        Select { options: I18n.entry-statuses; current: Pages.entry-status; label: I18n.label-status; changed(i) => { Pages.entry-status = i; Pages.changed("entries"); } }
     }
-    if Pages.entry-empty: SectionText { text: "No openings yet. Play a match with Record Replays on."; }
+    if Pages.entry-empty: SectionText { text: I18n.openings-empty; }
     DataTable {
         vertical-stretch: 1;
-        label: "Openings";
-        headers: ["When", "Type", "How", "Count", "Status", "Details"];
+        label: I18n.nav-openings;
+        headers: I18n.opening-headers;
         widths: [1.4, 1.4, 1, 0.6, 0.8, 2.4];
         left-columns: 3;
         rows: Pages.entries;
@@ -338,30 +339,30 @@ export component OpeningsPage inherits VerticalLayout {
     HorizontalLayout {
         spacing: Tokens.s;
         alignment: start;
-        Button { text: "Remove entry"; enabled: Pages.selected-entry != ""; clicked => { Pages.action("remove"); } }
-        Button { text: "Restore entry"; enabled: Pages.selected-entry != ""; clicked => { Pages.action("restore"); } }
-        Button { text: "Correct entry…"; enabled: Pages.selected-entry != ""; clicked => { Pages.action("correct"); } }
+        Button { text: I18n.btn-remove-entry; enabled: Pages.selected-entry != ""; clicked => { Pages.action("remove"); } }
+        Button { text: I18n.btn-restore-entry; enabled: Pages.selected-entry != ""; clicked => { Pages.action("restore"); } }
+        Button { text: I18n.btn-correct-entry; enabled: Pages.selected-entry != ""; clicked => { Pages.action("correct"); } }
     }
 }
 
 export component TeammatesPage inherits VerticalLayout {
     spacing: Tokens.m;
     FilterBar {
-        Select { options: Pages.modes; current: Pages.team-mode; label: "Game mode"; changed(i) => { Pages.team-mode = i; Pages.changed("team"); } }
-        Select { options: Pages.ranges; current: Pages.team-range; label: "Date range"; changed(i) => { Pages.team-range = i; Pages.changed("team"); } }
+        Select { options: Pages.modes; current: Pages.team-mode; label: I18n.label-game-mode; changed(i) => { Pages.team-mode = i; Pages.changed("team"); } }
+        Select { options: Pages.ranges; current: Pages.team-range; label: I18n.label-date-range; changed(i) => { Pages.team-range = i; Pages.changed("team"); } }
         Stepper {
             width: 280px;
             value: Pages.team-minimum;
             maximum: 999;
-            special: "Any number of matches";
-            prefix: "At least ";
-            suffix: " matches";
-            label: "Minimum matches together";
+            special: I18n.any-matches;
+            prefix: I18n.at-least-prefix;
+            suffix: I18n.matches-suffix;
+            label: I18n.label-min-matches;
             changed(v) => { Pages.team-minimum = v; Pages.changed("team"); }
         }
         Rectangle { horizontal-stretch: 1; }
-        IconButton { icon: Icons.table-view; tip: "Export as CSV"; clicked => { Pages.action("export-csv"); } }
-        IconButton { icon: Icons.data-object; tip: "Export as JSON"; clicked => { Pages.action("export-json"); } }
+        IconButton { icon: Icons.table-view; tip: I18n.tip-export-csv; clicked => { Pages.action("export-csv"); } }
+        IconButton { icon: Icons.data-object; tip: I18n.tip-export-json; clicked => { Pages.action("export-json"); } }
     }
     Text { text: Pages.team-count; font-size: Tokens.body; color: Tokens.on-surface-variant; }
     SectionText { text: Pages.team-note; }
@@ -371,7 +372,7 @@ export component TeammatesPage inherits VerticalLayout {
         HorizontalLayout {
             padding: Tokens.m;
             spacing: Tokens.m;
-            for title[i] in ["Most chests", "Best single match", "Played most with"]: VerticalLayout {
+            for title[i] in I18n.team-records-titles: VerticalLayout {
                 horizontal-stretch: 1;
                 spacing: Tokens.xxs;
                 Text { text: title; font-size: Tokens.body; color: Tokens.on-surface-variant; }
@@ -383,8 +384,8 @@ export component TeammatesPage inherits VerticalLayout {
     DataTable {
         min-height: 280px;
         vertical-stretch: 1;
-        label: "Teammates";
-        headers: ["Player", "Matches", "Chests", "Per match", "Searched", "Broken", "Rare+", "Best"];
+        label: I18n.nav-teammates;
+        headers: I18n.team-headers;
         widths: [2.2, 0.8, 0.8, 0.9, 0.9, 0.8, 0.7, 0.7];
         rows: Pages.people;
         sort-column: Pages.team-sort;
@@ -407,14 +408,14 @@ export component TeammatesPage inherits VerticalLayout {
                 VerticalLayout {
                     horizontal-stretch: 1;
                     spacing: Tokens.s;
-                    Text { text: "Chest types"; font-size: Tokens.label; font-weight: 600; color: Tokens.on-surface-variant; }
+                    Text { text: I18n.label-chest-types; font-size: Tokens.label; font-weight: 600; color: Tokens.on-surface-variant; }
                     BarRows { rows: Pages.profile-types; }
                     Rectangle { vertical-stretch: 1; }
                 }
                 VerticalLayout {
                     horizontal-stretch: 2;
                     spacing: Tokens.s;
-                    Text { text: "Chests per match"; font-size: Tokens.label; font-weight: 600; color: Tokens.on-surface-variant; }
+                    Text { text: I18n.label-chests-per-match; font-size: Tokens.label; font-weight: 600; color: Tokens.on-surface-variant; }
                     SeriesChart {
                         min-height: 200px;
                         points: Pages.profile-points;
@@ -422,12 +423,12 @@ export component TeammatesPage inherits VerticalLayout {
                         line: Pages.profile-line;
                         area: Pages.profile-area;
                         style: Pages.chart-style;
-                        empty: Pages.profile-points.length == 0 ? "Matches together will chart here" : "";
+                        empty: Pages.profile-points.length == 0 ? I18n.chart-together-empty : "";
                     }
                     DataTable {
                         height: 220px;
-                        label: "Matches together";
-                        headers: ["When", "Mode", "Their chests", "Your chests"];
+                        label: I18n.label-matches-together;
+                        headers: I18n.profile-match-headers;
                         widths: [1.4, 1.6, 1, 1];
                         left-columns: 2;
                         rows: Pages.profile-matches;
@@ -449,22 +450,22 @@ export component CorrectDialog inherits Rectangle {
         border-radius: Tokens.r-xl;
         background: Tokens.container-high;
         accessible-role: groupbox;
-        accessible-label: "Correct opening";
+        accessible-label: I18n.correct-title;
         TouchArea { }
         box := VerticalLayout {
             padding: Tokens.xl;
             spacing: Tokens.m;
-            Text { text: "Correct opening"; font-size: Tokens.headline; color: Tokens.on-surface; }
-            Text { text: "Chest type"; font-size: Tokens.label; color: Tokens.on-surface-variant; }
-            TextField { text: Pages.correct-type; label: "Chest type"; edited(t) => { Pages.correct-type = t; } }
-            Text { text: "Count"; font-size: Tokens.label; color: Tokens.on-surface-variant; }
-            Stepper { value: Pages.correct-count; minimum: 1; maximum: 10000; label: "Count"; changed(v) => { Pages.correct-count = v; } }
+            Text { text: I18n.correct-title; font-size: Tokens.headline; color: Tokens.on-surface; }
+            Text { text: I18n.label-chest-type; font-size: Tokens.label; color: Tokens.on-surface-variant; }
+            TextField { text: Pages.correct-type; label: I18n.label-chest-type; edited(t) => { Pages.correct-type = t; } }
+            Text { text: I18n.label-count; font-size: Tokens.label; color: Tokens.on-surface-variant; }
+            Stepper { value: Pages.correct-count; minimum: 1; maximum: 10000; label: I18n.label-count; changed(v) => { Pages.correct-count = v; } }
             SectionText { text: Pages.correct-reason; }
             HorizontalLayout {
                 spacing: Tokens.s;
                 alignment: end;
-                Button { text: "Cancel"; kind: "text"; clicked => { Pages.correcting = false; } }
-                Button { text: "Save"; kind: "filled"; clicked => { Pages.action("apply-correct"); } }
+                Button { text: I18n.btn-cancel; kind: "text"; clicked => { Pages.correcting = false; } }
+                Button { text: I18n.btn-save; kind: "filled"; clicked => { Pages.action("apply-correct"); } }
             }
         }
     }

@@ -1,6 +1,7 @@
 //! Dashboard cards from the statistics snapshot: a port of lootledger/panels.py. Text, order and wording
 //! follow the 0.7.1 cards; shapes for charts are computed here in a 0..100 view box.
 
+use crate::i18n::{self, Lang};
 use crate::prefs::Prefs;
 use crate::theme::Theme;
 use crate::{
@@ -103,12 +104,12 @@ pub const STATS_ORDER: &[&str] = &[
     "stat:token",
 ];
 
-pub fn title_of(id: &str) -> (&'static str, &'static str) {
-    let found = match id.strip_prefix("stat:") {
-        Some(key) => STAT_TITLES.iter().find(|t| t.0 == key),
-        None => TITLES.iter().find(|t| t.0 == id),
+pub fn title_of(id: &str, lang: Lang) -> (&'static str, &'static str) {
+    let icon = match id.strip_prefix("stat:") {
+        Some(key) => STAT_TITLES.iter().find(|t| t.0 == key).map_or("", |t| t.2),
+        None => TITLES.iter().find(|t| t.0 == id).map_or("", |t| t.2),
     };
-    found.map_or(("", ""), |t| (t.1, t.2))
+    (lang.card_title(id), icon)
 }
 
 /// What the cards need besides the snapshot.
@@ -144,8 +145,12 @@ pub struct Health {
     pub last_scan: Option<chrono::DateTime<Local>>,
 }
 
+fn lang_of(ctx: &Context) -> Lang {
+    i18n::from_code(&ctx.prefs.language)
+}
+
 fn blank(id: &str, kind: &str, span: i32, ctx: &Context) -> CardData {
-    let (title, icon) = title_of(id);
+    let (title, icon) = title_of(id, lang_of(ctx));
     CardData {
         id: s(id),
         kind: s(kind),
@@ -267,18 +272,6 @@ pub fn arc(radius: f64, start: f64, sweep: f64) -> String {
     )
 }
 
-fn days(count: i64) -> String {
-    if count == 1 {
-        "1 day".into()
-    } else {
-        format!("{count} days")
-    }
-}
-
-fn plural(n: i64, word: &str) -> String {
-    format!("{n} {word}{}", if n == 1 { "" } else { "es" })
-}
-
 fn clock(seconds: f64) -> String {
     let s = seconds.max(0.0) as i64;
     format!("{}:{:02}", s / 60, s % 60)
@@ -308,13 +301,19 @@ pub type StatValue = (
 
 pub fn stat_value(key: &str, ctx: &Context) -> StatValue {
     let (snap, p) = (ctx.snap, ctx.prefs);
+    let lang = lang_of(ctx);
     let fourteen: Vec<f64> = stats::last_days(snap, 14)
         .into_iter()
         .map(|v| v as f64)
         .collect();
     let recent: Vec<f64> = snap.recent_totals.iter().map(|v| *v as f64).collect();
     let recent_tips: Vec<SharedString> = (0..recent.len())
-        .map(|i| s(format!("Match {} of your last {}", i + 1, recent.len())))
+        .map(|i| {
+            s(match lang {
+                Lang::En => format!("Match {} of your last {}", i + 1, recent.len()),
+                Lang::PtBr => format!("Partida {} das últimas {}", i + 1, recent.len()),
+            })
+        })
         .collect();
     let day_tips = || last_days_tips(ctx, 14);
     let tips_for = |values: &[f64], tips: Vec<SharedString>| -> Vec<SharedString> {
@@ -327,9 +326,13 @@ pub fn stat_value(key: &str, ctx: &Context) -> StatValue {
     match key {
         "all" => {
             let detail = if snap.broken > 0 {
-                format!("{} broken open", p.int(snap.broken))
+                format!(
+                    "{} {}",
+                    p.int(snap.broken),
+                    lang.t("broken open", "quebrados")
+                )
             } else {
-                "searched chests".into()
+                lang.t("searched chests", "baús abertos").into()
             };
             let tips = tips_for(&fourteen, day_tips());
             (
@@ -345,7 +348,11 @@ pub fn stat_value(key: &str, ctx: &Context) -> StatValue {
             (
                 Value::Number(snap.today as f64, 0),
                 String::new(),
-                Some((snap.today, snap.today_prev, "vs yesterday")),
+                Some((
+                    snap.today,
+                    snap.today_prev,
+                    lang.t("vs yesterday", "em relação a ontem"),
+                )),
                 fourteen,
                 tips,
             )
@@ -355,7 +362,14 @@ pub fn stat_value(key: &str, ctx: &Context) -> StatValue {
             (
                 Value::Number(snap.week as f64, 0),
                 String::new(),
-                Some((snap.week, snap.week_prev, "vs the same days last week")),
+                Some((
+                    snap.week,
+                    snap.week_prev,
+                    lang.t(
+                        "vs the same days last week",
+                        "vs mesmos dias da semana passada",
+                    ),
+                )),
                 fourteen,
                 tips,
             )
@@ -365,7 +379,14 @@ pub fn stat_value(key: &str, ctx: &Context) -> StatValue {
             (
                 Value::Number(snap.month as f64, 0),
                 String::new(),
-                Some((snap.month, snap.month_prev, "vs the same days last month")),
+                Some((
+                    snap.month,
+                    snap.month_prev,
+                    lang.t(
+                        "vs the same days last month",
+                        "vs mesmos dias do mês passado",
+                    ),
+                )),
                 fourteen,
                 tips,
             )
@@ -374,7 +395,8 @@ pub fn stat_value(key: &str, ctx: &Context) -> StatValue {
             let tips = tips_for(&fourteen, day_tips());
             (
                 Value::Number(snap.session as f64, 0),
-                "since LootLedger opened".into(),
+                lang.t("since LootLedger opened", "desde que o LootLedger abriu")
+                    .into(),
                 None,
                 fourteen,
                 tips,
@@ -384,7 +406,7 @@ pub fn stat_value(key: &str, ctx: &Context) -> StatValue {
             let tips = tips_for(&recent, recent_tips);
             (
                 Value::Number(snap.matches as f64, 0),
-                "replays read".into(),
+                lang.t("replays read", "replays lidos").into(),
                 None,
                 recent,
                 tips,
@@ -393,7 +415,8 @@ pub fn stat_value(key: &str, ctx: &Context) -> StatValue {
         "last" => match &snap.last {
             None => (
                 Value::Text("–".into()),
-                "No match read yet".into(),
+                lang.t("No match read yet", "Nenhuma partida lida ainda")
+                    .into(),
                 None,
                 vec![],
                 vec![],
@@ -406,7 +429,7 @@ pub fn stat_value(key: &str, ctx: &Context) -> StatValue {
                 let tips = tips_for(&recent, recent_tips);
                 (
                     Value::Number(last.count as f64, 0),
-                    format!("{}{place}", last.mode),
+                    format!("{}{place}", lang.mode_name(&last.mode)),
                     None,
                     recent,
                     tips,
@@ -415,7 +438,8 @@ pub fn stat_value(key: &str, ctx: &Context) -> StatValue {
         },
         _ if snap.matches == 0 => (
             Value::Text("–".into()),
-            "Read a match to see this".into(),
+            lang.t("Read a match to see this", "Leia uma partida para ver isto")
+                .into(),
             None,
             vec![],
             vec![],
@@ -424,7 +448,11 @@ pub fn stat_value(key: &str, ctx: &Context) -> StatValue {
             let tips = tips_for(&recent, recent_tips);
             (
                 Value::Number(snap.avg.unwrap_or(0.0), 1),
-                format!("median {}", p.number(snap.median.unwrap_or(0.0), 1)),
+                format!(
+                    "{} {}",
+                    lang.t("median", "mediana"),
+                    p.number(snap.median.unwrap_or(0.0), 1)
+                ),
                 None,
                 recent,
                 tips,
@@ -434,7 +462,11 @@ pub fn stat_value(key: &str, ctx: &Context) -> StatValue {
             let tips = tips_for(&recent, recent_tips);
             (
                 Value::Number(snap.best.unwrap_or(0) as f64, 0),
-                format!("lowest {}", p.int(snap.worst.unwrap_or(0))),
+                format!(
+                    "{} {}",
+                    lang.t("lowest", "menor"),
+                    p.int(snap.worst.unwrap_or(0))
+                ),
                 None,
                 recent,
                 tips,
@@ -444,7 +476,7 @@ pub fn stat_value(key: &str, ctx: &Context) -> StatValue {
             let tips = tips_for(&recent, recent_tips);
             (
                 Value::Number(snap.per_hour, 1),
-                format!("over {}", p.duration(snap.playtime)),
+                format!("{} {}", lang.t("over", "em"), p.duration(snap.playtime)),
                 None,
                 recent,
                 tips,
@@ -454,7 +486,7 @@ pub fn stat_value(key: &str, ctx: &Context) -> StatValue {
             let tips = tips_for(&recent, recent_tips);
             (
                 Value::Text(p.duration(snap.playtime)),
-                format!("{} matches", snap.matches),
+                lang.matches_count(snap.matches),
                 None,
                 recent,
                 tips,
@@ -478,16 +510,29 @@ pub fn stat_value(key: &str, ctx: &Context) -> StatValue {
             };
             let remaining = (target_chests - summary.total_chests_squad).max(0);
             let detail = if summary.total_chests_squad > 0 {
-                format!(
-                    "Squad: {} chests · Next: {target_pct} (~{} to go)",
-                    p.int(summary.total_chests_squad),
-                    p.int(remaining)
-                )
+                match lang {
+                    Lang::En => format!(
+                        "Squad: {} chests · Next: {target_pct} (~{} to go)",
+                        p.int(summary.total_chests_squad),
+                        p.int(remaining)
+                    ),
+                    Lang::PtBr => format!(
+                        "Esquadrão: {} baús · Próx.: {target_pct} (faltam ~{})",
+                        p.int(summary.total_chests_squad),
+                        p.int(remaining)
+                    ),
+                }
             } else {
-                format!(
-                    "Next milestone: {target_pct} at ~{} chests",
-                    p.int(target_chests)
-                )
+                match lang {
+                    Lang::En => format!(
+                        "Next milestone: {target_pct} at ~{} chests",
+                        p.int(target_chests)
+                    ),
+                    Lang::PtBr => format!(
+                        "Próxima meta: {target_pct} em ~{} baús",
+                        p.int(target_chests)
+                    ),
+                }
             };
             let spark_vals: Vec<f64> = summary.recent_cum_probs.clone();
             let tips: Vec<SharedString> = summary
@@ -500,10 +545,11 @@ pub fn stat_value(key: &str, ctx: &Context) -> StatValue {
                 .rev()
                 .map(|d| {
                     s(format!(
-                        "{} · {:.2}% ({} chests)",
+                        "{} · {:.2}% ({} {})",
                         p.short_date(d.date),
                         d.cum_prob_squad * 100.0,
-                        p.int(d.cum_chests_squad)
+                        p.int(d.cum_chests_squad),
+                        lang.chest_word(d.cum_chests_squad),
                     ))
                 })
                 .collect();
@@ -515,6 +561,7 @@ pub fn stat_value(key: &str, ctx: &Context) -> StatValue {
 
 fn stat_card(key: &str, span: i32, ctx: &Context) -> CardData {
     let mut card = blank(&format!("stat:{key}"), "stat", span, ctx);
+    let lang = lang_of(ctx);
     let (value, detail, delta, sparkv, tips) = stat_value(key, ctx);
     card.value = s(match value {
         Value::Number(v, d) => ctx.prefs.number(v, d),
@@ -526,7 +573,7 @@ fn stat_card(key: &str, span: i32, ctx: &Context) -> CardData {
         card.delta = s(match diff.signum() {
             1 => format!("▲ +{} {text}", ctx.prefs.int(diff.abs())),
             -1 => format!("▼ −{} {text}", ctx.prefs.int(diff.abs())),
-            _ => format!("No change {text}"),
+            _ => format!("{} {text}", lang.t("No change", "Sem mudança")),
         });
         card.delta_tone = if diff > 0 { 2 } else { 0 };
     }
@@ -557,13 +604,35 @@ fn fact(value: impl Into<SharedString>, label: &str) -> Fact {
 fn live_card(span: i32, ctx: &Context) -> CardData {
     let mut card = blank("live", "live", span, ctx);
     card.accent = true;
+    let lang = lang_of(ctx);
     let (t, p, live) = (ctx.theme, ctx.prefs, &ctx.live);
     let (mut text, role) = match live.state {
-        "waiting" => ("Waiting for a match".to_owned(), "secondary"),
-        "live" => ("Live".to_owned(), "error"),
-        "saving" => ("Match over · reading the replay…".to_owned(), "tertiary"),
-        "ended" => ("Match counted".to_owned(), "primary"),
-        _ => ("Idle · Fortnite isn't running".to_owned(), "outline"),
+        "waiting" => (
+            lang.t("Waiting for a match", "Aguardando partida")
+                .to_owned(),
+            "secondary",
+        ),
+        "live" => (lang.t("Live", "Ao vivo").to_owned(), "error"),
+        "saving" => (
+            lang.t(
+                "Match over · reading the replay…",
+                "Partida encerrada · lendo o replay…",
+            )
+            .to_owned(),
+            "tertiary",
+        ),
+        "ended" => (
+            lang.t("Match counted", "Partida contada").to_owned(),
+            "primary",
+        ),
+        _ => (
+            lang.t(
+                "Idle · Fortnite isn't running",
+                "Inativo · Fortnite não está aberto",
+            )
+            .to_owned(),
+            "outline",
+        ),
     };
     card.live_dot = color(t.color(role));
     card.live_pulse = live.state == "live";
@@ -602,13 +671,15 @@ fn live_card(span: i32, ctx: &Context) -> CardData {
 
     if rows.is_empty() && !active {
         card.value = s("–");
-        card.note = s(
+        card.note = s(lang.t(
             "Play a match and your session shows up here. Finished matches are added automatically. Fortnite must have Record Replays on.",
-        );
+            "Jogue uma partida e sua sessão aparecerá aqui. Partidas encerradas entram automaticamente. O Fortnite precisa estar com Gravar Replays ativado.",
+        ));
     } else {
         card.value = s(p.int(chests));
         card.caption = s(if active {
-            "chests this session".to_owned()
+            lang.t("chests this session", "baús nesta sessão")
+                .to_owned()
         } else {
             let ended = last_end.unwrap_or(now);
             let when = if ended.date_naive() == now.date_naive() {
@@ -620,30 +691,40 @@ fn live_card(span: i32, ctx: &Context) -> CardData {
                     p.clock_time(ended)
                 )
             };
-            format!("chests in your last session (ended {when})")
+            match lang {
+                Lang::En => format!("chests in your last session (ended {when})"),
+                Lang::PtBr => format!("baús na última sessão (encerrou às {when})"),
+            }
         });
         let mut facts = vec![
             fact(
                 p.int(rows.len() as i64),
-                if rows.len() == 1 { "match" } else { "matches" },
+                if rows.len() == 1 {
+                    lang.t("match", "partida")
+                } else {
+                    lang.t("matches", "partidas")
+                },
             ),
-            fact(p.duration(in_session), "in session"),
+            fact(p.duration(in_session), lang.t("in session", "na sessão")),
         ];
         if rows.is_empty() {
             card.note = s(if live.state == "live" {
-                "Your first match is in progress. It is counted when it ends."
+                lang.t(
+                    "Your first match is in progress. It is counted when it ends.",
+                    "Sua primeira partida está em andamento. Será contada quando terminar.",
+                )
             } else {
-                "Reading your first match…"
+                lang.t("Reading your first match…", "Lendo sua primeira partida…")
             });
         } else {
             facts.push(fact(
                 p.number(chests as f64 / rows.len() as f64, 1),
-                "chests per match",
+                lang.t("chests per match", "baús por partida"),
             ));
             if in_matches > 0.0 {
                 facts.push(fact(
                     p.number(chests as f64 * 3600.0 / in_matches, 0),
-                    "chests per hour",
+                    lang.t("chests per hour", "baús por hora"),
                 ));
             }
         }
@@ -659,25 +740,29 @@ fn live_card(span: i32, ctx: &Context) -> CardData {
                     .map(|n| format!(" · #{n}"))
                     .unwrap_or_default();
                 card.note = s(format!(
-                    "Best match: {} chests{place} · {}",
+                    "{}: {} {}{place} · {}",
+                    lang.t("Best match", "Melhor partida"),
                     p.int(best.count),
-                    best.mode
+                    lang.chest_word(best.count),
+                    lang.mode_name(&best.mode),
                 ));
             }
             let values: Vec<f64> = rows.iter().map(|r| r.count as f64).collect();
             let (line, area) = spark(&values);
             card.spark_line = s(line);
             card.spark_area = s(area);
-            card.spark_label = s("Chests per match");
+            card.spark_label = s(lang.t("Chests per match", "Baús por partida"));
             card.spark_tips = model(
                 rows.iter()
                     .enumerate()
                     .map(|(i, r)| {
                         s(format!(
-                            "Match {} · {} · {} chests",
+                            "{} {} · {} · {} {}",
+                            lang.t("Match", "Partida"),
                             i + 1,
-                            r.mode,
-                            p.int(r.count)
+                            lang.mode_name(&r.mode),
+                            p.int(r.count),
+                            lang.chest_word(r.count),
                         ))
                     })
                     .collect::<Vec<_>>(),
@@ -700,6 +785,7 @@ const GRAINS: [Grain; 3] = [Grain::Day, Grain::Week, Grain::Month];
 
 fn trend_card(span: i32, ctx: &Context) -> CardData {
     let mut card = blank("trend", "trend", span, ctx);
+    let lang = lang_of(ctx);
     let (snap, p) = (ctx.snap, ctx.prefs);
     let (days, grain) = ctx.trend;
     card.range_index = stats_range_index(days);
@@ -712,13 +798,8 @@ fn trend_card(span: i32, ctx: &Context) -> CardData {
     let played = stats::trend(snap, grain, days, true);
     let label = |day: NaiveDate| match grain {
         Grain::Day => p.short_date(day),
-        Grain::Week => format!("Week of {}", p.short_date(day)),
-        Grain::Month => day.format("%b %Y").to_string(),
-    };
-    let unit = match grain {
-        Grain::Day => "day",
-        Grain::Week => "week",
-        Grain::Month => "month",
+        Grain::Week => format!("{} {}", lang.t("Week of", "Semana de"), p.short_date(day)),
+        Grain::Month => lang.month_year(day, false),
     };
     let peak = points.iter().map(|x| x.1).max().unwrap_or(0).max(1) as f64;
     let chart: Vec<ChartPoint> = points
@@ -727,10 +808,11 @@ fn trend_card(span: i32, ctx: &Context) -> CardData {
         .map(|(i, (day, value))| {
             let matches = played.get(i).map_or(0, |x| x.1);
             let mut tip = format!(
-                "{} · {} chests\n{}",
+                "{} · {} {}\n{}",
                 label(*day),
                 p.int(*value),
-                plural(matches, "match")
+                lang.chest_word(*value),
+                lang.matches_count(matches)
             );
             if i > 0 {
                 let change = value - points[i - 1].1;
@@ -741,7 +823,15 @@ fn trend_card(span: i32, ctx: &Context) -> CardData {
                 } else {
                     "±"
                 };
-                tip += &format!("\n{sign}{} vs the previous {unit}", p.int(change.abs()));
+                let prev = match (lang, grain) {
+                    (Lang::En, Grain::Day) => "vs the previous day",
+                    (Lang::En, Grain::Week) => "vs the previous week",
+                    (Lang::En, Grain::Month) => "vs the previous month",
+                    (Lang::PtBr, Grain::Day) => "vs dia anterior",
+                    (Lang::PtBr, Grain::Week) => "vs semana anterior",
+                    (Lang::PtBr, Grain::Month) => "vs mês anterior",
+                };
+                tip += &format!("\n{sign}{} {prev}", p.int(change.abs()));
             }
             ChartPoint {
                 label: s(label(*day)),
@@ -766,7 +856,7 @@ fn trend_card(span: i32, ctx: &Context) -> CardData {
             };
             let day = points[i].0;
             s(match grain {
-                Grain::Month => day.format("%b %y").to_string(),
+                Grain::Month => lang.month_year(day, true),
                 _ => p.short_date(day),
             })
         })
@@ -774,17 +864,26 @@ fn trend_card(span: i32, ctx: &Context) -> CardData {
     card.axis = model(axis);
     let total: i64 = values.iter().map(|v| *v as i64).sum();
     card.empty = s(if total == 0 {
-        "No chests in this range yet"
+        lang.t(
+            "No chests in this range yet",
+            "Nenhum baú neste período ainda",
+        )
     } else {
         ""
     });
     card.points = model(chart);
-    card.caption = s(format!("{} chests in this range", p.int(total)));
+    card.caption = s(format!(
+        "{} {} {}",
+        p.int(total),
+        lang.chest_word(total),
+        lang.t("in this range", "neste período")
+    ));
     card
 }
 
 fn token_card(span: i32, ctx: &Context) -> CardData {
     let mut card = blank("token", "token", span, ctx);
+    let lang = lang_of(ctx);
     let (snap, p) = (ctx.snap, ctx.prefs);
     card.style_index = ["bar", "line", "smooth", "area"]
         .iter()
@@ -814,34 +913,63 @@ fn token_card(span: i32, ctx: &Context) -> CardData {
     };
     let remaining = (target_chests - summary.total_chests_squad).max(0);
     let milestone_msg = if remaining > 0 {
-        format!(
-            "Next milestone: {target_pct} chance at ~{} chests (~{} to go)",
-            p.int(target_chests),
-            p.int(remaining)
-        )
+        match lang {
+            Lang::En => format!(
+                "Next milestone: {target_pct} chance at ~{} chests (~{} to go)",
+                p.int(target_chests),
+                p.int(remaining)
+            ),
+            Lang::PtBr => format!(
+                "Próxima meta: {target_pct} de chance em ~{} baús (faltam ~{})",
+                p.int(target_chests),
+                p.int(remaining)
+            ),
+        }
     } else {
-        format!(
-            "Surpassed {target_pct} milestone! Total squad chests: {}",
-            p.int(summary.total_chests_squad)
-        )
+        match lang {
+            Lang::En => format!(
+                "Surpassed {target_pct} milestone! Total squad chests: {}",
+                p.int(summary.total_chests_squad)
+            ),
+            Lang::PtBr => format!(
+                "Meta de {target_pct} ultrapassada! Total do esquadrão: {} baús",
+                p.int(summary.total_chests_squad)
+            ),
+        }
     };
 
     card.caption = s(milestone_msg);
 
     if summary.total_chests_squad > 0 {
-        card.detail = s(format!(
-            "Squad: {} ({} chests) · You: {} ({}) · Next: {target_pct} (~{} to go)",
-            format_pct(summary.prob_squad),
-            p.int(summary.total_chests_squad),
-            format_pct(summary.prob_me),
-            p.int(summary.total_chests_me),
-            p.int(remaining),
-        ));
+        card.detail = s(match lang {
+            Lang::En => format!(
+                "Squad: {} ({} chests) · You: {} ({}) · Next: {target_pct} (~{} to go)",
+                format_pct(summary.prob_squad),
+                p.int(summary.total_chests_squad),
+                format_pct(summary.prob_me),
+                p.int(summary.total_chests_me),
+                p.int(remaining),
+            ),
+            Lang::PtBr => format!(
+                "Esquadrão: {} ({} baús) · Você: {} ({}) · Próx.: {target_pct} (faltam ~{})",
+                format_pct(summary.prob_squad),
+                p.int(summary.total_chests_squad),
+                format_pct(summary.prob_me),
+                p.int(summary.total_chests_me),
+                p.int(remaining),
+            ),
+        });
     } else {
-        card.detail = s(format!(
-            "Squad: 0 chests · Next milestone: {target_pct} chance at ~{} chests",
-            p.int(target_chests)
-        ));
+        card.detail = s(match lang {
+            Lang::En => format!(
+                "Squad: 0 chests · Next milestone: {target_pct} chance at ~{} chests",
+                p.int(target_chests)
+            ),
+            Lang::PtBr => format!(
+                "Esquadrão: 0 baús · Próxima meta: {target_pct} de chance em ~{} baús",
+                p.int(target_chests)
+            ),
+        });
     }
 
     let now_local = Local::now();
@@ -849,34 +977,73 @@ fn token_card(span: i32, ctx: &Context) -> CardData {
         stats::active_treasure_window(&now_local, ctx.treasure_hours)
     {
         let denom = (stats::BASE_TOKEN_DENOM / boost).round() as i64;
-        let kind = if is_manual { "Manual" } else { "Active" };
+        let kind = if is_manual {
+            lang.t("Manual", "Manual")
+        } else {
+            lang.t("Active", "Ativo")
+        };
         let until = end_opt
-            .map(|e| format!(" until {}", p.clock_time(e.with_timezone(&Local))))
+            .map(|e| {
+                format!(
+                    " {} {}",
+                    lang.t("until", "até"),
+                    p.clock_time(e.with_timezone(&Local))
+                )
+            })
             .unwrap_or_default();
-        format!(
-            "⚡ {kind} Treasure Hour LIVE ({boost:.2}× boost{until} · 1 in {}){}",
-            p.int(denom),
-            if summary.treasure_hour_chests > 0 {
-                format!(" · {} boosted chests", p.int(summary.treasure_hour_chests))
-            } else {
-                String::new()
-            }
-        )
+        match lang {
+            Lang::En => format!(
+                "⚡ {kind} Treasure Hour LIVE ({boost:.2}× boost{until} · 1 in {}){}",
+                p.int(denom),
+                if summary.treasure_hour_chests > 0 {
+                    format!(" · {} boosted chests", p.int(summary.treasure_hour_chests))
+                } else {
+                    String::new()
+                }
+            ),
+            Lang::PtBr => format!(
+                "⚡ Hora do Poder ({kind}) AO VIVO ({boost:.2}× bônus{until} · 1 em {}){}",
+                p.int(denom),
+                if summary.treasure_hour_chests > 0 {
+                    format!(" · {} baús com bônus", p.int(summary.treasure_hour_chests))
+                } else {
+                    String::new()
+                }
+            ),
+        }
     } else if summary.treasure_hour_chests > 0 {
-        format!(
-            "Base odds: 1 in 137,500 · {} chests opened during Treasure Hours (Settings → Treasure Hours).",
-            p.int(summary.treasure_hour_chests)
-        )
+        match lang {
+            Lang::En => format!(
+                "Base odds: 1 in 137,500 · {} chests opened during Treasure Hours (Settings → Treasure Hours).",
+                p.int(summary.treasure_hour_chests)
+            ),
+            Lang::PtBr => format!(
+                "Chance base: 1 em {} · {} baús abertos em Horas do Poder (Configurações → Horas do Poder).",
+                p.int(137_500),
+                p.int(summary.treasure_hour_chests)
+            ),
+        }
     } else {
-        "Base odds: 1 in 137,500 per chest · Configure boost windows in Settings → Treasure Hours."
-            .to_owned()
+        match lang {
+            Lang::En => "Base odds: 1 in 137,500 per chest · Configure boost windows in Settings → Treasure Hours.".to_owned(),
+            Lang::PtBr => format!(
+                "Chance base: 1 em {} por baú · Configure horários em Configurações → Horas do Poder.",
+                p.int(137_500)
+            ),
+        }
     };
 
     if summary.days.is_empty() {
-        card.empty = s(format!(
-            "No matches read yet · Next milestone: {target_pct} at ~{} chests",
-            p.int(target_chests)
-        ));
+        card.empty = s(match lang {
+            Lang::En => format!(
+                "No matches read yet · Next milestone: {target_pct} at ~{} chests",
+                p.int(target_chests)
+            ),
+            Lang::PtBr => format!(
+                "Nenhuma partida lida ainda · Próxima meta: {target_pct} em ~{} baús",
+                p.int(target_chests)
+            ),
+        });
         card.note = s(th_note);
         return card;
     }
@@ -893,17 +1060,31 @@ fn token_card(span: i32, ctx: &Context) -> CardData {
         .iter()
         .map(|d| {
             let label = p.short_date(d.date);
-            let mut tip = format!(
-                "{} · {:.2}% chance\nSquad: {} chests (+{} today)\nYou: {} chests (+{} today)",
-                label,
-                d.cum_prob_squad * 100.0,
-                p.int(d.cum_chests_squad),
-                p.int(d.chests_squad),
-                p.int(d.cum_chests_me),
-                p.int(d.chests_me),
-            );
+            let mut tip = match lang {
+                Lang::En => format!(
+                    "{} · {:.2}% chance\nSquad: {} chests (+{} today)\nYou: {} chests (+{} today)",
+                    label,
+                    d.cum_prob_squad * 100.0,
+                    p.int(d.cum_chests_squad),
+                    p.int(d.chests_squad),
+                    p.int(d.cum_chests_me),
+                    p.int(d.chests_me),
+                ),
+                Lang::PtBr => format!(
+                    "{} · {:.2}% de chance\nEsquadrão: {} baús (+{} no dia)\nVocê: {} baús (+{} no dia)",
+                    label,
+                    d.cum_prob_squad * 100.0,
+                    p.int(d.cum_chests_squad),
+                    p.int(d.chests_squad),
+                    p.int(d.cum_chests_me),
+                    p.int(d.chests_me),
+                ),
+            };
             if d.had_treasure_hour {
-                tip += "\n⚡ Includes Treasure Hour (boosted odds!)";
+                tip += lang.t(
+                    "\n⚡ Includes Treasure Hour (boosted odds!)",
+                    "\n⚡ Inclui Hora do Poder (chance aumentada!)",
+                );
             }
             ChartPoint {
                 label: s(label),
@@ -949,6 +1130,7 @@ pub fn stats_range_index(days: i64) -> i32 {
 
 fn types_card(span: i32, ctx: &Context) -> CardData {
     let mut card = blank("types", "types", span, ctx);
+    let lang = lang_of(ctx);
     let (snap, p, t) = (ctx.snap, ctx.prefs, ctx.theme);
     let types = snap.types.most_common();
     let total: i64 = types.iter().map(|x| x.1).sum::<i64>().max(1);
@@ -963,7 +1145,8 @@ fn types_card(span: i32, ctx: &Context) -> CardData {
             sweep: sweep as f32,
             color: color(t.type_color(name)),
             tip: s(format!(
-                "{name} · {} ({}%)",
+                "{} · {} ({}%)",
+                lang.chest_type(name),
                 p.int(*value),
                 (sweep * 100.0).round()
             )),
@@ -973,7 +1156,7 @@ fn types_card(span: i32, ctx: &Context) -> CardData {
     }
     card.slices = model(slices);
     card.center = s(p.int(snap.all));
-    card.caption = s("chests");
+    card.caption = s(lang.chest_word(snap.all));
     let mut names: Vec<String> = types.iter().map(|x| x.0.clone()).collect();
     let mut extra: Vec<String> = snap
         .team_types
@@ -984,13 +1167,13 @@ fn types_card(span: i32, ctx: &Context) -> CardData {
     extra.sort();
     names.extend(extra);
     let mut rows = vec![row(vec![
-        cell("Type", 3),
-        cell("You", 3),
-        cell("Teammates*", 3),
+        cell(lang.t("Type", "Tipo"), 3),
+        cell(lang.t("You", "Você"), 3),
+        cell(lang.t("Teammates*", "Equipe*"), 3),
     ])];
     for name in &names {
         let mut r = row(vec![
-            cell(name.clone(), 4),
+            cell(lang.chest_type(name), 4),
             cell(p.int(snap.types.get(name)), 1),
             cell(p.int(snap.team_types.get(name)), 0),
         ]);
@@ -999,7 +1182,10 @@ fn types_card(span: i32, ctx: &Context) -> CardData {
         rows.push(r);
     }
     if names.is_empty() {
-        rows.push(row(vec![cell("No chests yet", 0)]));
+        rows.push(row(vec![cell(
+            lang.t("No chests yet", "Nenhum baú ainda"),
+            0,
+        )]));
     } else {
         rows.push(row(vec![
             cell("Total", 3),
@@ -1008,7 +1194,10 @@ fn types_card(span: i32, ctx: &Context) -> CardData {
         ]));
     }
     card.table = model(rows);
-    card.note = s("*Only chests your replays recorded. Details on the Teammates page.");
+    card.note = s(lang.t(
+        "*Only chests your replays recorded. Details on the Teammates page.",
+        "*Somente baús registrados nos seus replays. Detalhes na aba Equipe.",
+    ));
     card
 }
 
@@ -1028,23 +1217,30 @@ fn bars(rows: Vec<(String, i64, String)>) -> ModelRc<BarRow> {
 
 fn modes_card(span: i32, ctx: &Context) -> CardData {
     let mut card = blank("modes", "bars", span, ctx);
+    let lang = lang_of(ctx);
     let mut modes = ctx.snap.modes.clone();
     modes.sort_by_key(|m| std::cmp::Reverse(m.1.chests));
     modes.truncate(8);
     if modes.is_empty() {
-        card.lines = model(vec![cell("Read a match to see your modes", 0)]);
+        card.lines = model(vec![cell(
+            lang.t(
+                "Read a match to see your modes",
+                "Leia uma partida para ver seus modos",
+            ),
+            0,
+        )]);
     }
     card.bars = bars(
         modes
             .into_iter()
             .map(|(name, m)| {
                 (
-                    name,
+                    lang.mode_name(&name),
                     m.chests,
                     format!(
                         "{} · {}",
                         ctx.prefs.int(m.chests),
-                        plural(m.matches, "match")
+                        lang.matches_count(m.matches)
                     ),
                 )
             })
@@ -1055,6 +1251,7 @@ fn modes_card(span: i32, ctx: &Context) -> CardData {
 
 fn heat_card(span: i32, ctx: &Context) -> CardData {
     let mut card = blank("heat", "heat", span, ctx);
+    let lang = lang_of(ctx);
     let (snap, p) = (ctx.snap, ctx.prefs);
     let peak = snap
         .heat
@@ -1064,15 +1261,6 @@ fn heat_card(span: i32, ctx: &Context) -> CardData {
         .copied()
         .unwrap_or(0)
         .max(1) as f32;
-    let names = [
-        "Monday",
-        "Tuesday",
-        "Wednesday",
-        "Thursday",
-        "Friday",
-        "Saturday",
-        "Sunday",
-    ];
     let mut cells = Vec::with_capacity(168);
     for (d, day) in snap.heat.iter().enumerate() {
         for (h, value) in day.iter().enumerate() {
@@ -1080,45 +1268,67 @@ fn heat_card(span: i32, ctx: &Context) -> CardData {
             cells.push(HeatCell {
                 alpha: *value as f32 / peak,
                 tip: s(format!(
-                    "{} {:02}:00 · {} chests · {}",
-                    names[d],
+                    "{} {:02}:00 · {} {} · {}",
+                    lang.weekday(d),
                     h,
                     p.int(*value),
-                    plural(matches, "match")
+                    lang.chest_word(*value),
+                    lang.matches_count(matches)
                 )),
             });
         }
     }
     card.heat = model(cells);
-    card.note = s("Local time · darker means more chests");
+    card.note = s(lang.t(
+        "Local time · darker means more chests",
+        "Horário local · mais escuro indica mais baús",
+    ));
     card
 }
 
 fn records_card(span: i32, ctx: &Context) -> CardData {
     let mut card = blank("records", "table", span, ctx);
+    let lang = lang_of(ctx);
     let (snap, p) = (ctx.snap, ctx.prefs);
     let mut items = Vec::new();
     if let Some(best) = snap.best {
-        items.push(("Best match", format!("{} chests", p.int(best))));
+        items.push((
+            lang.t("Best match", "Melhor partida"),
+            format!("{} {}", p.int(best), lang.chest_word(best)),
+        ));
     }
     if let Some((day, count)) = snap.best_day {
         items.push((
-            "Best day",
+            lang.t("Best day", "Melhor dia"),
             format!("{} · {}", p.int(count), p.short_date(day)),
         ));
     }
     if let Some(session) = &snap.session_best {
         let length = (session.end - session.start).num_milliseconds() as f64 / 1000.0;
         items.push((
-            "Longest session",
-            format!("{} · {} chests", p.duration(length), p.int(session.chests)),
+            lang.t("Longest session", "Sessão mais longa"),
+            format!(
+                "{} · {} {}",
+                p.duration(length),
+                p.int(session.chests),
+                lang.chest_word(session.chests)
+            ),
         ));
     }
     if snap.peak_hour.0 > 0 {
-        items.push(("Most in one hour", p.int(snap.peak_hour.0)));
+        items.push((
+            lang.t("Most in one hour", "Máximo em uma hora"),
+            p.int(snap.peak_hour.0),
+        ));
     }
-    items.push(("Longest daily streak", days(snap.streak_longest)));
-    items.push(("Current streak", days(snap.streak_current)));
+    items.push((
+        lang.t("Longest daily streak", "Maior sequência diária"),
+        lang.days_count(snap.streak_longest),
+    ));
+    items.push((
+        lang.t("Current streak", "Sequência atual"),
+        lang.days_count(snap.streak_current),
+    ));
     card.table = model(
         items
             .into_iter()
@@ -1130,27 +1340,35 @@ fn records_card(span: i32, ctx: &Context) -> CardData {
 
 fn team_card(span: i32, ctx: &Context) -> CardData {
     let mut card = blank("teammates", "bars", span, ctx);
+    let lang = lang_of(ctx);
     let (snap, p) = (ctx.snap, ctx.prefs);
     if snap.matches == 0 {
-        card.lines = model(vec![cell("Read a match with teammates to compare.", 0)]);
+        card.lines = model(vec![cell(
+            lang.t(
+                "Read a match with teammates to compare.",
+                "Leia uma partida com equipe para comparar.",
+            ),
+            0,
+        )]);
         return card;
     }
     let (you, team) = (snap.match_chests, snap.team_total);
+    let per_match_label = lang.t("per match", "por partida");
     let mut rows = vec![
         (
-            "You".to_owned(),
+            lang.t("You", "Você").to_owned(),
             you,
             format!(
-                "{} · {} per match",
+                "{} · {} {per_match_label}",
                 p.int(you),
                 p.number(snap.avg.unwrap_or(0.0), 1)
             ),
         ),
         (
-            "Teammates".to_owned(),
+            lang.t("Teammates", "Equipe").to_owned(),
             team,
             format!(
-                "{} · {} per match",
+                "{} · {} {per_match_label}",
                 p.int(team),
                 p.number(snap.team_per_match.unwrap_or(0.0), 1)
             ),
@@ -1160,42 +1378,55 @@ fn team_card(span: i32, ctx: &Context) -> CardData {
         rows.push((
             m.name.clone(),
             m.total,
-            format!("{} in {}", p.int(m.total), plural(m.matches, "match")),
+            format!(
+                "{} {} {}",
+                p.int(m.total),
+                lang.t("in", "em"),
+                lang.matches_count(m.matches)
+            ),
         ));
     }
     card.bars = bars(rows);
     let share = snap
         .your_share
-        .map(|x| {
-            format!(
+        .map(|x| match lang {
+            Lang::En => format!(
                 "You opened {}% of the chests your replays recorded. ",
                 (x * 100.0).round()
-            )
+            ),
+            Lang::PtBr => format!(
+                "Você abriu {}% dos baús registrados nos seus replays. ",
+                (x * 100.0).round()
+            ),
         })
         .unwrap_or_default();
     card.note = s(share
-        + "Teammate counts only include chests your replays recorded. Full squad breakdown: Teammates page.");
+        + lang.t(
+            "Teammate counts only include chests your replays recorded. Full squad breakdown: Teammates page.",
+            "A contagem da equipe inclui só os baús registrados nos seus replays. Resumo completo na aba Equipe.",
+        ));
     card
 }
 
 fn broken_card(span: i32, ctx: &Context) -> CardData {
     let mut card = blank("broken", "table", span, ctx);
+    let lang = lang_of(ctx);
     let (snap, p) = (ctx.snap, ctx.prefs);
     let searched = (snap.all - snap.broken, snap.team_opened);
     let broken = (snap.broken, snap.team_broken);
     let total = (searched.0 + broken.0, searched.1 + broken.1);
     let mut rows = vec![row(vec![
         cell("", 3),
-        cell("You", 3),
-        cell("Teammates*", 3),
+        cell(lang.t("You", "Você"), 3),
+        cell(lang.t("Teammates*", "Equipe*"), 3),
     ])];
-    for (name, pair) in [
-        ("Searched", searched),
-        ("Broken open", broken),
-        ("Total", total),
+    for (is_total, name, pair) in [
+        (false, lang.t("Searched", "Abertos"), searched),
+        (false, lang.t("Broken open", "Quebrados"), broken),
+        (true, "Total", total),
     ] {
         rows.push(row(vec![
-            cell(name, if name == "Total" { 3 } else { 0 }),
+            cell(name, if is_total { 3 } else { 0 }),
             cell(p.int(pair.0), 1),
             cell(p.int(pair.1), 1),
         ]));
@@ -1211,11 +1442,15 @@ fn broken_card(span: i32, ctx: &Context) -> CardData {
     ammo.dedup();
     let mut notes = Vec::new();
     if !ammo.is_empty() {
+        let prefix = lang.t("Not counted as chests: ", "Não contados como baús: ");
+        let you_lbl = lang.t("you", "você");
+        let team_lbl = lang.t("teammates", "equipe");
         notes.push(format!(
-            "Not counted as chests: {}",
+            "{prefix}{}",
             ammo.iter()
                 .map(|n| format!(
-                    "{n}, you {} / teammates {}",
+                    "{}, {you_lbl} {} / {team_lbl} {}",
+                    lang.container_name(n),
                     p.int(snap.containers.get(n)),
                     p.int(snap.team_containers.get(n))
                 ))
@@ -1223,13 +1458,20 @@ fn broken_card(span: i32, ctx: &Context) -> CardData {
                 .join(" · ")
         ));
     }
-    notes.push("*Teammates: only chests your replays recorded. Broken open means the chest was destroyed before anyone searched it.".into());
+    notes.push(
+        lang.t(
+            "*Teammates: only chests your replays recorded. Broken open means the chest was destroyed before anyone searched it.",
+            "*Equipe: apenas baús registrados nos seus replays. Quebrados significa baús destruídos antes de serem abertos.",
+        )
+        .into(),
+    );
     card.note = s(notes.join("\n"));
     card
 }
 
 fn health_card(span: i32, ctx: &Context) -> CardData {
     let mut card = blank("health", "health", span, ctx);
+    let lang = lang_of(ctx);
     let Some(h) = &ctx.health else { return card };
     let p = ctx.prefs;
     let mut blocked = false;
@@ -1238,9 +1480,10 @@ fn health_card(span: i32, ctx: &Context) -> CardData {
         let fix = if *ok {
             String::new()
         } else if blocked {
-            "Waiting on the step above.".into()
+            lang.t("Waiting on the step above.", "Aguardando o passo anterior.")
+                .into()
         } else {
-            format!("Fix it: {fix}")
+            format!("{} {fix}", lang.t("Fix it:", "Corrigir:"))
         };
         if !ok {
             blocked = true; // later checks depend on earlier ones: one fix at a time
@@ -1254,31 +1497,49 @@ fn health_card(span: i32, ctx: &Context) -> CardData {
     card.checks = model(checks);
     let checked = h
         .last_scan
-        .map_or("not yet".to_owned(), |t| t.format("%H:%M:%S").to_string());
-    let newest = h.newest.map_or("none yet".to_owned(), |t| {
-        format!(
-            "newest {} ago",
-            crate::prefs::elapsed(crate::live::seconds(std::time::SystemTime::now()) - t)
-        )
+        .map_or(lang.t("not yet", "ainda não").to_owned(), |t| {
+            t.format("%H:%M:%S").to_string()
+        });
+    let newest = h
+        .newest
+        .map_or(lang.t("none yet", "nenhum ainda").to_owned(), |t| {
+            let ago = crate::prefs::elapsed(crate::live::seconds(std::time::SystemTime::now()) - t);
+            match lang {
+                Lang::En => format!("newest {ago} ago"),
+                Lang::PtBr => format!("mais recente há {ago}"),
+            }
+        });
+    card.note = s(match lang {
+        Lang::En => format!(
+            "{} · last check {checked}\n{} replays in the folder ({newest}) · {} read · {} could not be read",
+            h.watching,
+            p.int(h.replays as i64),
+            p.int(h.read),
+            p.int(h.unreadable)
+        ),
+        Lang::PtBr => format!(
+            "{} · última verificação {checked}\n{} replays na pasta ({newest}) · {} lidos · {} não puderam ser lidos",
+            h.watching,
+            p.int(h.replays as i64),
+            p.int(h.read),
+            p.int(h.unreadable)
+        ),
     });
-    card.note = s(format!(
-        "{} · last check {checked}\n{} replays in the folder ({newest}) · {} read · {} could not be read",
-        h.watching,
-        p.int(h.replays as i64),
-        p.int(h.read),
-        p.int(h.unreadable)
-    ));
     card
 }
 
 fn sessions_card(span: i32, ctx: &Context) -> CardData {
     let mut card = blank("sessions", "bars", span, ctx);
+    let lang = lang_of(ctx);
     let p = ctx.prefs;
     let found = stats::sessions(&ctx.snap.match_rows);
     let Some(last) = found.first() else {
         card.value = s("–");
         card.lines = model(vec![cell(
-            "Play a few matches: matches less than 30 minutes apart make a session.",
+            lang.t(
+                "Play a few matches: matches less than 30 minutes apart make a session.",
+                "Jogue algumas partidas: intervalos menores que 30 minutos formam uma sessão.",
+            ),
             0,
         )]);
         return card;
@@ -1286,25 +1547,31 @@ fn sessions_card(span: i32, ctx: &Context) -> CardData {
     card.value = s(p.int(last.chests));
     let mut lines = vec![cell(
         format!(
-            "Latest session · {} · {} · {} · {} chests per hour",
+            "{} · {} · {} · {} · {} {}",
+            lang.t("Latest session", "Última sessão"),
             p.short_date(last.start.date_naive()),
-            plural(last.matches, "match"),
+            lang.matches_count(last.matches),
             p.duration(last.seconds),
-            p.number(last.per_hour, 1)
+            p.number(last.per_hour, 1),
+            lang.t("chests per hour", "baús por hora"),
         ),
         0,
     )];
     let average = found.iter().map(|x| x.per_hour).sum::<f64>() / found.len() as f64;
+    let per_hour_lbl = lang.t("per hour", "por hora");
     let mut parts = vec![format!(
-        "Average session: {} per hour",
+        "{}: {} {per_hour_lbl}",
+        lang.t("Average session", "Média por sessão"),
         p.number(average, 1)
     )];
     if let Some(prev) = found.get(1) {
         parts.insert(
             0,
             format!(
-                "Previous: {} chests, {} per hour",
+                "{}: {} {}, {} {per_hour_lbl}",
+                lang.t("Previous", "Anterior"),
                 p.int(prev.chests),
+                lang.chest_word(prev.chests),
                 p.number(prev.per_hour, 1)
             ),
         );
@@ -1329,6 +1596,7 @@ fn sessions_card(span: i32, ctx: &Context) -> CardData {
 
 fn goals_card(span: i32, ctx: &Context) -> CardData {
     let mut card = blank("goals", "goals", span, ctx);
+    let lang = lang_of(ctx);
     let p = ctx.prefs;
     let goals = stats::goals(ctx.snap, p.goal_daily, p.goal_weekly);
     card.rings = model(
@@ -1339,20 +1607,27 @@ fn goals_card(span: i32, ctx: &Context) -> CardData {
                 text: s(format!("{}/{}", p.int(g.done), p.int(g.target))),
                 caption: s(format!(
                     "{}{}",
-                    g.name,
-                    if g.reached { " · done" } else { "" }
+                    lang.goal_name(g.name),
+                    if g.reached {
+                        lang.t(" · done", " · concluído")
+                    } else {
+                        ""
+                    }
                 )),
                 path: s(arc(42.0, 0.0, g.share.max(0.001))),
             })
             .collect(),
     );
     let streak = ctx.snap.streak_current;
-    let text = format!(
-        "Streak: {streak} day{} in a row with chests.",
-        if streak == 1 { "" } else { "s" }
-    );
+    let text = match lang {
+        Lang::En => format!("Streak: {} in a row with chests.", lang.days_count(streak)),
+        Lang::PtBr => format!("Sequência: {} seguidos com baús.", lang.days_count(streak)),
+    };
     card.note = s(if goals.is_empty() {
-        text + " Set a daily or weekly goal in Settings → Goals."
+        text + lang.t(
+            " Set a daily or weekly goal in Settings → Goals.",
+            " Defina uma meta diária ou semanal em Configurações → Metas.",
+        )
     } else {
         text
     });
@@ -1361,19 +1636,23 @@ fn goals_card(span: i32, ctx: &Context) -> CardData {
 
 fn trophies_card(span: i32, ctx: &Context) -> CardData {
     let mut card = blank("trophies", "trophies", span, ctx);
+    let lang = lang_of(ctx);
     let items = stats::achievements(ctx.snap);
-    card.note = s(format!(
-        "{} of {} unlocked",
-        items.iter().filter(|i| i.unlocked).count(),
-        items.len()
-    ));
+    let unlocked = items.iter().filter(|i| i.unlocked).count();
+    card.note = s(match lang {
+        Lang::En => format!("{unlocked} of {} unlocked", items.len()),
+        Lang::PtBr => format!("{unlocked} de {} desbloqueados", items.len()),
+    });
     card.trophies = model(
         items
             .into_iter()
-            .map(|i| Trophy {
-                title: s(i.title),
-                detail: s(i.detail),
-                unlocked: i.unlocked,
+            .map(|i| {
+                let (title, detail) = lang.achievement(&i.id, &i.title, &i.detail);
+                Trophy {
+                    title: s(title),
+                    detail: s(detail),
+                    unlocked: i.unlocked,
+                }
             })
             .collect(),
     );
@@ -1392,13 +1671,14 @@ pub fn default_compare(today: NaiveDate) -> [NaiveDate; 4] {
 
 fn compare_card(span: i32, ctx: &Context) -> CardData {
     let mut card = blank("compare", "compare", span, ctx);
+    let lang = lang_of(ctx);
     let (p, d) = (ctx.prefs, ctx.compare);
     card.dates = model(d.iter().map(|x| s(p.full_date(*x))).collect());
     let mut rows = vec![row(vec![
         cell("", 3),
-        cell("First", 3),
-        cell("Second", 3),
-        cell("Change", 3),
+        cell(lang.t("First", "Primeiro"), 3),
+        cell(lang.t("Second", "Segundo"), 3),
+        cell(lang.t("Change", "Variação"), 3),
     ])];
     for (name, a, b, change) in stats::compare(ctx.snap, (d[0], d[1]), (d[2], d[3])) {
         let decimals = if name == "Chests per match" { 1 } else { 0 };
@@ -1410,7 +1690,7 @@ fn compare_card(span: i32, ctx: &Context) -> CardData {
             "±"
         };
         rows.push(row(vec![
-            cell(name, 0),
+            cell(lang.compare_metric(name), 0),
             cell(p.number(a, decimals), 1),
             cell(p.number(b, decimals), 1),
             cell(
@@ -1459,6 +1739,7 @@ pub fn stat_text(p: &Prefs, unit: StatUnit, value: f64) -> String {
 
 fn stats_card(span: i32, ctx: &Context) -> CardData {
     let mut card = blank("stats", "table", span, ctx);
+    let lang = lang_of(ctx);
     let p = ctx.prefs;
     let with: Vec<&serde_json::Value> = ctx
         .snap
@@ -1467,18 +1748,19 @@ fn stats_card(span: i32, ctx: &Context) -> CardData {
         .filter_map(|r| r.stats.as_ref())
         .collect();
     if with.is_empty() {
-        card.note = s(
+        card.note = s(lang.t(
             "No match stats yet. They come from replays LootLedger reads from now on, and from older replays Fortnite still keeps.",
-        );
+            "Sem estatísticas de partida ainda. Elas vêm dos próximos replays lidos e dos replays antigos que ainda estiverem no disco.",
+        ));
         return card;
     }
     let mut rows = vec![row(vec![
         cell("", 3),
-        cell("Per match", 3),
-        cell("Best", 3),
+        cell(lang.t("Per match", "Por partida"), 3),
+        cell(lang.t("Best", "Melhor"), 3),
         cell("Total", 3),
     ])];
-    for (label, key, unit) in MATCH_STATS {
+    for (_, key, unit) in MATCH_STATS {
         let values: Vec<f64> = with.iter().filter_map(|st| st[*key].as_f64()).collect();
         let total: f64 = values.iter().sum();
         let best = values.iter().cloned().fold(0.0, f64::max);
@@ -1489,22 +1771,31 @@ fn stats_card(span: i32, ctx: &Context) -> CardData {
             stat_text(p, *unit, total)
         };
         rows.push(row(vec![
-            cell(*label, 0),
+            cell(lang.match_stat_label(key), 0),
             cell(stat_text(p, *unit, average), 1),
             cell(stat_text(p, *unit, best), 4),
             cell(total_text, 0),
         ]));
     }
     card.table = model(rows);
-    card.note = s(format!(
-        "From {} of {} matches. Matches whose replay Fortnite has already deleted have no stats.",
-        with.len(),
-        ctx.snap
-            .match_rows
-            .iter()
-            .filter(|r| r.mode != "Manual")
-            .count()
-    ));
+    let total_non_manual = ctx
+        .snap
+        .match_rows
+        .iter()
+        .filter(|r| r.mode != "Manual")
+        .count();
+    card.note = s(match lang {
+        Lang::En => format!(
+            "From {} of {} matches. Matches whose replay Fortnite has already deleted have no stats.",
+            with.len(),
+            total_non_manual
+        ),
+        Lang::PtBr => format!(
+            "De {} de {} partidas. Partidas cujo replay já foi apagado pelo Fortnite não têm estatísticas.",
+            with.len(),
+            total_non_manual
+        ),
+    });
     card
 }
 
@@ -1570,18 +1861,23 @@ fn versus(
     today: i64,
     p: &Prefs,
 ) -> String {
+    let lang = i18n::from_code(&p.language);
     let mut parts = Vec::new();
     if matches > 1 && best == Some(count) {
-        parts.push("Your best match yet".to_owned());
+        parts.push(
+            lang.t("Your best match yet", "Sua melhor partida até agora")
+                .to_owned(),
+        );
     } else if let Some(avg) = avg {
         let diff = (count as f64 - avg).round() as i64;
+        let vs_avg = lang.t("vs your average", "da sua média");
         parts.push(match diff {
-            0 => "Right on your average".to_owned(),
-            d if d > 0 => format!("+{} vs your average", p.int(d)),
-            d => format!("−{} vs your average", p.int(-d)),
+            0 => lang.t("Right on your average", "Na sua média").to_owned(),
+            d if d > 0 => format!("+{} {vs_avg}", p.int(d)),
+            d => format!("−{} {vs_avg}", p.int(-d)),
         });
     }
-    parts.push(format!("Today {}", p.int(today)));
+    parts.push(format!("{} {}", lang.t("Today", "Hoje"), p.int(today)));
     parts.join(" · ")
 }
 

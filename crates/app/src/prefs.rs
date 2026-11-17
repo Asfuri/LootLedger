@@ -162,6 +162,7 @@ prefs! {
     discord_rpc: bool = false,
     discord_app_id: String = String::new(),
     discord_only_in_game: bool = true,
+    language: String = "en".into(),
 }
 
 /// Allowed values of the choice fields.
@@ -185,6 +186,7 @@ pub fn choices(name: &str) -> Option<&'static [&'static str]> {
             "bottom_left",
             "bottom_right",
         ],
+        "language" => &["en", "pt-BR"],
         _ => return None,
     })
 }
@@ -485,5 +487,7 @@ mod tests {
         assert_eq!(elapsed(3725.0), "1:02:05");
         assert!(p.set("theme", &json!("dark")) && p.theme == "dark");
         assert!(!p.set("theme", &json!("neon")));
+        assert!(p.set("language", &json!("pt-BR")) && p.language == "pt-BR");
+        assert!(!p.set("language", &json!("xx-YY")));
     }
 }

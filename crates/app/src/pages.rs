@@ -2,6 +2,7 @@
 //! teammates.py of LootLedger 0.7.1.
 
 use crate::cards::{color, model, series_path};
+use crate::i18n;
 use crate::prefs::{Prefs, RANGES, elapsed};
 use crate::theme::Theme;
 use crate::{AppWindow, BarRow, ChartPoint, Mark, Pages, Row};
@@ -80,46 +81,6 @@ fn row(id: &str, cells: Vec<String>) -> Row {
     }
 }
 
-fn plural(n: i64, word: &str) -> String {
-    format!("{n} {word}{}", if n == 1 { "" } else { "es" })
-}
-
-fn people(n: usize) -> String {
-    if n == 1 {
-        "1 person".into()
-    } else {
-        format!("{n} people")
-    }
-}
-
-const HOW: [(&str, &str); 4] = [
-    ("replay", "Opened"),
-    ("replay-broken", "Broken open"),
-    ("manual correction", "Manual"),
-    ("automatic", "Screen (old)"),
-];
-
-fn how(source: &str) -> String {
-    HOW.iter()
-        .find(|(k, _)| *k == source)
-        .map_or(source.to_owned(), |(_, v)| (*v).to_owned())
-}
-
-fn status(status: &str) -> String {
-    match status {
-        "confirmed" => "Counted".into(),
-        "undone" => "Removed".into(),
-        "review" => "Review".into(),
-        "rejected" => "Rejected".into(),
-        other => {
-            let mut c = other.chars();
-            c.next()
-                .map(|f| f.to_uppercase().collect::<String>() + c.as_str())
-                .unwrap_or_default()
-        }
-    }
-}
-
 /// Today plus the last N-1 days; 0 means all time.
 fn since(index: i32, today: chrono::NaiveDate) -> Option<chrono::NaiveDate> {
     let days = RANGES.get(index as usize).copied().unwrap_or(30);
@@ -135,6 +96,7 @@ pub fn fill(
     t: &Theme,
     count_broken: bool,
 ) {
+    let lang = i18n::from_code(&p.language);
     let g = ui.global::<Pages>();
     let mut modes: Vec<String> = snap.modes.iter().map(|m| m.0.clone()).collect();
     modes.sort();
@@ -157,15 +119,21 @@ pub fn fill(
     g.set_team_mode(keep(&old_modes, g.get_team_mode(), &modes));
     g.set_match_type(keep(&old_types, g.get_match_type(), &types));
     g.set_entry_type(keep(&old_types, g.get_entry_type(), &types));
+    g.set_ranges(model(vec![
+        s(lang.t("Last 7 days", "Últimos 7 dias")),
+        s(lang.t("Last 30 days", "Últimos 30 dias")),
+        s(lang.t("Last 90 days", "Últimos 90 dias")),
+        s(lang.t("All time", "Todo o tempo")),
+    ]));
     g.set_modes(model(
-        std::iter::once("All modes".to_owned())
-            .chain(modes.iter().cloned())
+        std::iter::once(lang.t("All modes", "Todos os modos").to_owned())
+            .chain(modes.iter().map(|m| lang.mode_name(m)))
             .map(SharedString::from)
             .collect(),
     ));
     g.set_types(model(
-        std::iter::once("All types".to_owned())
-            .chain(types.iter().cloned())
+        std::iter::once(lang.t("All types", "Todos os tipos").to_owned())
+            .chain(types.iter().map(|ty| lang.chest_type(ty)))
             .map(SharedString::from)
             .collect(),
     ));
@@ -179,11 +147,11 @@ pub fn fill(
         .cloned();
     st.match_ids = snap.match_rows.iter().map(|r| r.id.clone()).collect();
     g.set_match_names(model(
-        std::iter::once(s("All matches"))
+        std::iter::once(s(lang.t("All matches", "Todas as partidas")))
             .chain(
                 snap.match_rows
                     .iter()
-                    .map(|r| s(format!("{} · {}", r.mode, p.when(r.when)))),
+                    .map(|r| s(format!("{} · {}", lang.mode_name(&r.mode), p.when(r.when)))),
             )
             .collect(),
     ));
@@ -221,6 +189,7 @@ pub fn matches(
     t: &Theme,
     count_broken: bool,
 ) {
+    let lang = i18n::from_code(&p.language);
     let g = ui.global::<Pages>();
     let kind = (g.get_match_type() > 0)
         .then(|| st.types.get(g.get_match_type() as usize - 1).cloned())
@@ -244,8 +213,9 @@ pub fn matches(
                 && since.is_none_or(|d| r.when.date_naive() >= d)
                 && (text.is_empty()
                     || format!(
-                        "{} {} {} {}",
+                        "{} {} {} {} {}",
                         r.mode,
+                        lang.mode_name(&r.mode),
                         r.when.format("%Y-%m-%d"),
                         r.tags,
                         r.note
@@ -258,7 +228,7 @@ pub fn matches(
     rows.sort_by(|a, b| {
         let key = |r: &MatchRow| -> (f64, String) {
             match column {
-                1 => (0.0, r.mode.to_lowercase()),
+                1 => (0.0, lang.mode_name(&r.mode).to_lowercase()),
                 2 => (r.placement.unwrap_or(1_000_000) as f64, String::new()),
                 3 => (type_chests(r, kind.as_deref()) as f64, String::new()),
                 4 => (r.broken as f64, String::new()),
@@ -282,7 +252,11 @@ pub fn matches(
                 &r.id,
                 vec![
                     p.when(r.when),
-                    format!("{}{}", if r.favorite { "★ " } else { "" }, r.mode),
+                    format!(
+                        "{}{}",
+                        if r.favorite { "★ " } else { "" },
+                        lang.mode_name(&r.mode)
+                    ),
                     place,
                     p.int(type_chests(r, kind.as_deref())),
                     if count_broken {
@@ -299,7 +273,12 @@ pub fn matches(
         .collect();
     let total = snap.match_rows.len();
     g.set_match_count(s(if total > 0 {
-        format!("{} of {total} matches", shown.len())
+        format!(
+            "{} {} {}",
+            shown.len(),
+            lang.t("of", "de"),
+            lang.matches_count(total as i64)
+        )
     } else {
         String::new()
     }));
@@ -315,16 +294,31 @@ pub fn matches(
 }
 
 fn detail(ui: &AppWindow, r: &MatchRow, p: &Prefs, t: &Theme) {
+    let lang = i18n::from_code(&p.language);
     let g = ui.global::<Pages>();
-    g.set_detail_title(s(format!("{} · {}", r.mode, p.when(r.when))));
-    let place = r.placement.map_or("No placement recorded".to_owned(), |n| {
-        format!("#{n}") + &r.players.map(|t| format!(" of {t}")).unwrap_or_default()
-    });
+    g.set_detail_title(s(format!(
+        "{} · {}",
+        lang.mode_name(&r.mode),
+        p.when(r.when)
+    )));
+    let place = r.placement.map_or_else(
+        || {
+            lang.t("No placement recorded", "Sem colocação registrada")
+                .to_owned()
+        },
+        |n| {
+            format!("#{n}")
+                + &r.players
+                    .map(|tot| format!(" {} {tot}", lang.t("of", "de")))
+                    .unwrap_or_default()
+        },
+    );
     let team = if r.teammates.is_empty() {
         String::new()
     } else {
         format!(
-            " · with {}",
+            " · {} {}",
+            lang.t("with", "com"),
             r.teammates
                 .iter()
                 .take(3)
@@ -333,20 +327,33 @@ fn detail(ui: &AppWindow, r: &MatchRow, p: &Prefs, t: &Theme) {
                 .join(", ")
         )
     };
-    g.set_detail_sub(s(format!(
-        "{place} · {} long · {} chests{team}",
-        elapsed(r.seconds),
-        p.int(r.count)
-    )));
+    g.set_detail_sub(s(match lang {
+        i18n::Lang::En => format!(
+            "{place} · {} long · {} {}{team}",
+            elapsed(r.seconds),
+            p.int(r.count),
+            lang.chest_word(r.count)
+        ),
+        i18n::Lang::PtBr => format!(
+            "{place} · {} de duração · {} {}{team}",
+            elapsed(r.seconds),
+            p.int(r.count),
+            lang.chest_word(r.count)
+        ),
+    }));
     g.set_detail_favorite(r.favorite);
     // The recorder's match stats, e.g. "Damage to players 867 · Accuracy 41% · ...".
     let stats = r.stats.as_ref().map_or(String::new(), |st| {
         crate::cards::MATCH_STATS
             .iter()
-            .filter_map(|(label, key, unit)| {
-                st[*key]
-                    .as_f64()
-                    .map(|v| format!("{label} {}", crate::cards::stat_text(p, *unit, v)))
+            .filter_map(|(_, key, unit)| {
+                st[*key].as_f64().map(|v| {
+                    format!(
+                        "{} {}",
+                        lang.match_stat_label(key),
+                        crate::cards::stat_text(p, *unit, v)
+                    )
+                })
             })
             .collect::<Vec<_>>()
             .join(" · ")
@@ -358,14 +365,14 @@ fn detail(ui: &AppWindow, r: &MatchRow, p: &Prefs, t: &Theme) {
     let peak = types.iter().map(|x| x.1).max().unwrap_or(0).max(1) as f32;
     let bars: Vec<BarRow> = if types.is_empty() {
         vec![BarRow {
-            label: s("No chests opened"),
+            label: s(lang.t("No chests opened", "Nenhum baú aberto")),
             ..Default::default()
         }]
     } else {
         types
             .iter()
             .map(|(n, c)| BarRow {
-                label: s(n.clone()),
+                label: s(lang.chest_type(n)),
                 fraction: *c as f32 / peak,
                 text: s(p.int(*c)),
                 color: color(t.type_color(n)),
@@ -376,7 +383,10 @@ fn detail(ui: &AppWindow, r: &MatchRow, p: &Prefs, t: &Theme) {
     g.set_detail_types(model(bars));
     g.set_detail_end(s(elapsed(r.seconds)));
     g.set_detail_squad_note(s(if r.squad.is_none() {
-        "This older match has no per-player detail. It is read again on the next scan, while its replay file is still on disk."
+        lang.t(
+            "This older match has no per-player detail. It is read again on the next scan, while its replay file is still on disk.",
+            "Esta partida antiga não tem detalhes por jogador. Ela será relida na próxima verificação se o arquivo de replay ainda estiver no disco.",
+        )
     } else {
         ""
     }));
@@ -391,7 +401,7 @@ fn detail(ui: &AppWindow, r: &MatchRow, p: &Prefs, t: &Theme) {
                 let mut t = m.types.items.clone();
                 t.sort_by_key(|x| std::cmp::Reverse(x.1));
                 t.iter()
-                    .map(|(n, c)| format!("{n} {}", p.int(*c)))
+                    .map(|(n, c)| format!("{} {}", lang.chest_type(n), p.int(*c)))
                     .collect::<Vec<_>>()
                     .join(", ")
             };
@@ -403,7 +413,11 @@ fn detail(ui: &AppWindow, r: &MatchRow, p: &Prefs, t: &Theme) {
             let mut x = row(
                 &m.key,
                 vec![
-                    format!("{}{}{mvp}", m.name, stats::tag(m)),
+                    format!(
+                        "{}{}{mvp}",
+                        m.name,
+                        lang.squad_tag(m.me, m.bot, m.anonymous)
+                    ),
                     p.int(m.total),
                     p.int(m.opened),
                     p.int(m.broken),
@@ -423,6 +437,7 @@ pub fn set_detail_marks(
     marks: &[(f64, String, String)],
     seconds: f64,
     t: &Theme,
+    lang: i18n::Lang,
     target: &str,
 ) {
     let length = seconds.max(1.0);
@@ -432,10 +447,11 @@ pub fn set_detail_marks(
             x: (time / length).clamp(0.0, 1.0) as f32,
             color: color(t.type_color(kind)),
             tip: s(format!(
-                "{} · {kind}{}",
+                "{} · {}{}",
                 elapsed(*time),
+                lang.chest_type(kind),
                 if source == "replay-broken" {
-                    " · broken open"
+                    lang.t(" · broken open", " · quebrado")
                 } else {
                     ""
                 }
@@ -451,6 +467,7 @@ pub fn set_detail_marks(
 }
 
 pub fn entries(ui: &AppWindow, st: &mut State, snap: &Snapshot, p: &Prefs, t: &Theme) {
+    let lang = i18n::from_code(&p.language);
     let g = ui.global::<Pages>();
     let kind = (g.get_entry_type() > 0)
         .then(|| st.types.get(g.get_entry_type() as usize - 1).cloned())
@@ -469,9 +486,14 @@ pub fn entries(ui: &AppWindow, st: &mut State, snap: &Snapshot, p: &Prefs, t: &T
                 && match_id.as_ref().is_none_or(|m| *m == e.match_id)
                 && (wanted.is_empty() || e.status == wanted)
                 && (text.is_empty()
-                    || format!("{} {}", e.chest_type, e.reason)
-                        .to_lowercase()
-                        .contains(&text))
+                    || format!(
+                        "{} {} {}",
+                        e.chest_type,
+                        lang.chest_type(&e.chest_type),
+                        e.reason
+                    )
+                    .to_lowercase()
+                    .contains(&text))
         })
         .map(|(i, _)| i)
         .collect();
@@ -479,10 +501,12 @@ pub fn entries(ui: &AppWindow, st: &mut State, snap: &Snapshot, p: &Prefs, t: &T
     visible.sort_by(|&a, &b| {
         let (ea, eb) = (&st.entries[a], &st.entries[b]);
         let order = match column {
-            1 => ea.0.chest_type.cmp(&eb.0.chest_type),
-            2 => how(&ea.0.source).cmp(&how(&eb.0.source)),
+            1 => lang
+                .chest_type(&ea.0.chest_type)
+                .cmp(&lang.chest_type(&eb.0.chest_type)),
+            2 => lang.how(&ea.0.source).cmp(&lang.how(&eb.0.source)),
             3 => ea.0.amount.cmp(&eb.0.amount),
-            4 => ea.0.status.cmp(&eb.0.status),
+            4 => lang.status(&ea.0.status).cmp(&lang.status(&eb.0.status)),
             5 => ea.0.reason.cmp(&eb.0.reason),
             _ => ea.1.cmp(&eb.1),
         };
@@ -496,10 +520,10 @@ pub fn entries(ui: &AppWindow, st: &mut State, snap: &Snapshot, p: &Prefs, t: &T
                 &e.id,
                 vec![
                     p.when(*when),
-                    e.chest_type.clone(),
-                    how(&e.source),
+                    lang.chest_type(&e.chest_type),
+                    lang.how(&e.source),
                     p.int(e.amount),
-                    status(&e.status),
+                    lang.status(&e.status),
                     e.reason
                         .split_once(" · ")
                         .map_or(e.reason.as_str(), |(_, r)| r)
@@ -526,15 +550,19 @@ pub fn entries(ui: &AppWindow, st: &mut State, snap: &Snapshot, p: &Prefs, t: &T
     match match_id.and_then(|id| snap.match_rows.iter().find(|r| r.id == id)) {
         Some(r) => {
             g.set_open_title(s(format!(
-                "{} · {} · {} chests",
-                r.mode,
+                "{} · {} · {} {}",
+                lang.mode_name(&r.mode),
                 p.when(r.when),
-                p.int(r.count)
+                p.int(r.count),
+                lang.chest_word(r.count)
             )));
             g.set_open_end(s(elapsed(r.seconds)));
         }
         None => {
-            g.set_open_title(s("Choose a match above to see when its openings happened"));
+            g.set_open_title(s(lang.t(
+                "Choose a match above to see when its openings happened",
+                "Escolha uma partida acima para ver quando as aberturas aconteceram",
+            )));
             g.set_open_end(s(""));
             g.set_open_marks(model(vec![]));
         }
@@ -549,6 +577,7 @@ pub fn selected_entry_match(ui: &AppWindow, st: &State) -> Option<String> {
 }
 
 pub fn team(ui: &AppWindow, st: &mut State, snap: &Snapshot, p: &Prefs, t: &Theme) {
+    let lang = i18n::from_code(&p.language);
     let g = ui.global::<Pages>();
     let mode = (g.get_team_mode() > 0)
         .then(|| st.modes.get(g.get_team_mode() as usize - 1).cloned())
@@ -577,35 +606,70 @@ pub fn team(ui: &AppWindow, st: &mut State, snap: &Snapshot, p: &Prefs, t: &Them
         ("played", best.most_played),
     ] {
         match person {
-            None => records.extend(["–".to_owned(), "No teammates in this view".to_owned()]),
+            None => records.extend([
+                "–".to_owned(),
+                lang.t("No teammates in this view", "Sem colegas nesta seleção")
+                    .to_owned(),
+            ]),
             Some(x) if key == "most" => records.extend([
-                format!("{} · {} chests", x.name, p.int(x.total)),
-                format!("in {}", plural(x.matches, "match")),
+                format!(
+                    "{} · {} {}",
+                    x.name,
+                    p.int(x.total),
+                    lang.chest_word(x.total)
+                ),
+                format!("{} {}", lang.t("in", "em"), lang.matches_count(x.matches)),
             ]),
             Some(x) if key == "best" => records.extend([
-                format!("{} · {} in one match", x.name, p.int(x.best)),
+                format!(
+                    "{} · {} {}",
+                    x.name,
+                    p.int(x.best),
+                    lang.t("in one match", "em uma partida")
+                ),
                 x.best_when.map(|w| p.when(w)).unwrap_or_default(),
             ]),
             Some(x) => records.extend([
                 x.name.clone(),
-                format!("{} together", plural(x.matches, "match")),
+                format!(
+                    "{} {}",
+                    lang.matches_count(x.matches),
+                    lang.t("together", "juntos")
+                ),
             ]),
         }
     }
     g.set_records(model(records.into_iter().map(SharedString::from).collect()));
     g.set_team_count(s(format!(
-        "{} across {} in this view",
-        people(ranked.len()),
-        plural(rows.len() as i64, "match")
+        "{} {} {} {}",
+        lang.people_count(ranked.len()),
+        lang.t("across", "em"),
+        lang.matches_count(rows.len() as i64),
+        lang.t("in this view", "nesta seleção")
     )));
     let mut notes = Vec::new();
     if snap.older_matches > 0 {
-        notes.push(format!(
-            "{} older matches have no per-player detail yet. They are read again on the next scan while their replay files are still on disk.",
-            snap.older_matches
-        ));
+        notes.push(match lang {
+            i18n::Lang::En => format!(
+                "{} older matches have no per-player detail yet. They are read again on the next scan while their replay files are still on disk.",
+                snap.older_matches
+            ),
+            i18n::Lang::PtBr => format!(
+                "{} partidas antigas ainda não têm detalhes por jogador. Serão relidas na próxima verificação se os replays ainda estiverem no disco.",
+                snap.older_matches
+            ),
+        });
     }
-    notes.push(format!("{} chests were already open when your game first showed them, so nobody is credited for them.", p.int(snap.unattributed)));
+    notes.push(match lang {
+        i18n::Lang::En => format!(
+            "{} chests were already open when your game first showed them, so nobody is credited for them.",
+            p.int(snap.unattributed)
+        ),
+        i18n::Lang::PtBr => format!(
+            "{} baús já estavam abertos quando o jogo os exibiu pela primeira vez, então não foram atribuídos a ninguém.",
+            p.int(snap.unattributed)
+        ),
+    });
     g.set_team_note(s(notes.join(" ")));
     let (column, descending) = st.team_sort;
     ranked.sort_by(|a, b| {
@@ -621,17 +685,6 @@ pub fn team(ui: &AppWindow, st: &mut State, snap: &Snapshot, p: &Prefs, t: &Them
         };
         if descending { order.reverse() } else { order }
     });
-    let tag = |x: &Person| {
-        if x.me {
-            " · you"
-        } else if x.bot {
-            " · bot"
-        } else if x.anonymous {
-            " · unnamed"
-        } else {
-            ""
-        }
-    };
     g.set_people(model(
         ranked
             .iter()
@@ -639,7 +692,7 @@ pub fn team(ui: &AppWindow, st: &mut State, snap: &Snapshot, p: &Prefs, t: &Them
                 row(
                     &x.key,
                     vec![
-                        format!("{}{}", x.name, tag(x)),
+                        format!("{}{}", x.name, lang.squad_tag(x.me, x.bot, x.anonymous)),
                         p.int(x.matches),
                         p.int(x.total),
                         p.number(x.per_match, 1),
@@ -663,23 +716,45 @@ pub fn team(ui: &AppWindow, st: &mut State, snap: &Snapshot, p: &Prefs, t: &Them
         let history = stats::profile(&rows, &x.key);
         let span = match (history.first(), history.last()) {
             (Some(a), Some(b)) => format!(
-                " · first {} · last {}",
+                " · {} {} · {} {}",
+                lang.t("first", "primeira"),
                 p.short_date(a.when.date_naive()),
+                lang.t("last", "última"),
                 p.short_date(b.when.date_naive())
             ),
             _ => String::new(),
         };
-        g.set_profile_title(s(format!("{}{}", x.name, tag(x))));
-        g.set_profile_sub(s(format!("{} together{span}", plural(x.matches, "match"))));
-        g.set_profile_stats(s(format!(
-            "{} chests · {} per match · {} searched · {} broken open · {} rare or better · best {}",
-            p.int(x.total),
-            p.number(x.per_match, 1),
-            p.int(x.opened),
-            p.int(x.broken),
-            p.int(x.rare),
-            p.int(x.best)
+        g.set_profile_title(s(format!(
+            "{}{}",
+            x.name,
+            lang.squad_tag(x.me, x.bot, x.anonymous)
         )));
+        g.set_profile_sub(s(format!(
+            "{} {}{span}",
+            lang.matches_count(x.matches),
+            lang.t("together", "juntos")
+        )));
+        g.set_profile_stats(s(match lang {
+            i18n::Lang::En => format!(
+                "{} chests · {} per match · {} searched · {} broken open · {} rare or better · best {}",
+                p.int(x.total),
+                p.number(x.per_match, 1),
+                p.int(x.opened),
+                p.int(x.broken),
+                p.int(x.rare),
+                p.int(x.best)
+            ),
+            i18n::Lang::PtBr => format!(
+                "{} {} · {} por partida · {} abertos · {} quebrados · {} raros ou melhor · melhor {}",
+                p.int(x.total),
+                lang.chest_word(x.total),
+                p.number(x.per_match, 1),
+                p.int(x.opened),
+                p.int(x.broken),
+                p.int(x.rare),
+                p.int(x.best)
+            ),
+        }));
         let peak = history.iter().map(|h| h.total).max().unwrap_or(0).max(1) as f32;
         g.set_profile_points(model(
             history
@@ -688,10 +763,12 @@ pub fn team(ui: &AppWindow, st: &mut State, snap: &Snapshot, p: &Prefs, t: &Them
                     label: s(p.short_date(h.when.date_naive())),
                     value: h.total as f32 / peak,
                     tip: s(format!(
-                        "{} · {} · {} chests (you {})",
+                        "{} · {} · {} {} ({} {})",
                         p.when(h.when),
-                        h.mode,
+                        lang.mode_name(&h.mode),
                         p.int(h.total),
+                        lang.chest_word(h.total),
+                        lang.t("you", "você"),
                         p.int(h.mine)
                     )),
                 })
@@ -728,14 +805,14 @@ pub fn team(ui: &AppWindow, st: &mut State, snap: &Snapshot, p: &Prefs, t: &Them
         let tpeak = common.iter().map(|c| c.1).max().unwrap_or(0).max(1) as f32;
         g.set_profile_types(model(if common.is_empty() {
             vec![BarRow {
-                label: s("No chests"),
+                label: s(lang.t("No chests", "Nenhum baú")),
                 ..Default::default()
             }]
         } else {
             common
                 .iter()
                 .map(|(n, c)| BarRow {
-                    label: s(n.clone()),
+                    label: s(lang.chest_type(n)),
                     fraction: *c as f32 / tpeak,
                     text: s(p.int(*c)),
                     color: color(t.type_color(n)),
@@ -752,7 +829,7 @@ pub fn team(ui: &AppWindow, st: &mut State, snap: &Snapshot, p: &Prefs, t: &Them
                         &h.id,
                         vec![
                             p.when(h.when),
-                            h.mode.clone(),
+                            lang.mode_name(&h.mode),
                             p.int(h.total),
                             p.int(h.mine),
                         ],

@@ -47,6 +47,7 @@ export component MatchPopup inherits Window {
     always-on-top: true;
     in property <string> heading;
     in property <string> count;
+    in property <string> unit: "chests";
     in property <string> detail;
     in property <color> surface;
     in property <color> outline;
@@ -72,7 +73,7 @@ export component MatchPopup inherits Window {
                 alignment: start;
                 spacing: pad / 2;
                 Text { text: count; font-size: 40px; font-weight: 700; color: accent; }
-                Text { text: count == "1" ? "chest" : "chests"; font-size: 16px; color: ink; vertical-alignment: bottom; }
+                Text { text: unit; font-size: 16px; color: ink; vertical-alignment: bottom; }
             }
             if detail != "": Text { text: detail; font-size: 12px; color: ink; wrap: word-wrap; }
         }
