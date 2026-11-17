@@ -8,7 +8,7 @@ import { Dash, DashGrid } from "dashboard.slint";
 import { Settings, SettingsPage } from "settings.slint";
 export { Overlay, MatchPopup } from "overlay.slint";
 export { Summary } from "summary.slint";
-import { Pages, Row, MatchesPage, OpeningsPage, TeammatesPage, CorrectDialog } from "pages.slint";
+import { Pages, Row, MatchesPage, SessionsPage, OpeningsPage, TeammatesPage, CorrectDialog } from "pages.slint";
 export { Tokens, Icons, Anim, Dash, Settings, Tip, Drag, Palette, Pages, Row }
 export { CardData, DashRow, Cell, TableRow, BarRow, ChartPoint, Slice, HeatCell, Check, RingData, Trophy, Mark }
 
@@ -142,6 +142,7 @@ export component AppWindow inherits Window {
     property <[{title: string, icon: string, sub: string}]> pages: [
         { title: "Overview", icon: Icons.dashboard, sub: "" },
         { title: "Matches", icon: Icons.sports-esports, sub: "Matches read from your replays. Select one to see its breakdown and timeline." },
+        { title: "Sessions", icon: Icons.timelapse, sub: "Every play session: a run of matches less than 30 minutes apart. Select one to see its matches." },
         { title: "Openings", icon: Icons.inventory-2, sub: "Every chest you opened, newest first. Corrections are recorded and never silently lost." },
         { title: "Statistics", icon: Icons.insights, sub: "" },
         { title: "Teammates", icon: Icons.groups, sub: "Everyone who played with you, merged across matches. Pick someone to see their profile." },
@@ -175,7 +176,7 @@ export component AppWindow inherits Window {
     // Every key a focused control does not use bubbles up to here.
     keys := FocusScope {
         key-pressed(event) => {
-            if event.modifiers.control && event.text >= "1" && event.text <= "6" {
+            if event.modifiers.control && event.text >= "1" && event.text <= "7" {
                 root.previous-page = root.page;
                 root.page = event.text.to-float() - 1;
                 return accept;
@@ -248,8 +249,8 @@ export component AppWindow inherits Window {
                 padding-bottom: Tokens.l;
                 spacing: Tokens.m;
                 for p[i] in pages: RailItem {
-                    visible: i < 5;
-                    height: i < 5 ? self.preferred-height : 0px;
+                    visible: i < 6;
+                    height: i < 6 ? self.preferred-height : 0px;
                     icon: p.icon;
                     text: p.title;
                     selected: page == i;
@@ -257,16 +258,16 @@ export component AppWindow inherits Window {
                 }
                 Rectangle { vertical-stretch: 1; }
                 RailItem {
-                    icon: pages[5].icon;
-                    text: pages[5].title;
-                    selected: page == 5;
-                    clicked => { root.previous-page = root.page; root.page = 5; }
+                    icon: pages[6].icon;
+                    text: pages[6].title;
+                    selected: page == 6;
+                    clicked => { root.previous-page = root.page; root.page = 6; }
                 }
             }
             // ---- Page content
             Rectangle {
                 horizontal-stretch: 1;
-                if page == 0 || page == 3 || page == 4 || page == 5: ScrollView {
+                if page == 0 || page == 2 || page == 4 || page == 5 || page == 6: ScrollView {
                     content-width: self.visible-width;
                     content-height: host.height;
                     host := PageHost {
@@ -282,7 +283,7 @@ export component AppWindow inherits Window {
                             spacing: Tokens.m;
                             PageHeader {
                                 title: pages[page].title;
-                                subtitle: page == 0 ? overview-subtitle : page == 3 ? stats-subtitle : pages[page].sub;
+                                subtitle: page == 0 ? overview-subtitle : page == 4 ? stats-subtitle : pages[page].sub;
                                 if page == 0 && editing: Select {
                                     y: (parent.height - self.height) / 2;
                                     options: missing-widgets;
@@ -333,17 +334,18 @@ export component AppWindow inherits Window {
                                 editable: true;
                                 columns-changed(n) => { root.columns-changed(n); }
                             }
-                            if page == 3: DashGrid {
+                            if page == 4: DashGrid {
                                 rows: stats-rows;
                                 editable: false;
                                 columns-changed(n) => { root.stats-columns-changed(n); }
                             }
-                            if page == 4: TeammatesPage { }
-                            if page == 5: SettingsPage { }
+                            if page == 2: SessionsPage { }
+                            if page == 5: TeammatesPage { }
+                            if page == 6: SettingsPage { }
                         }
                     }
                 }
-                if page == 1 || page == 2: PageHost {
+                if page == 1 || page == 3: PageHost {
                     forward: page > previous-page;
                     VerticalLayout {
                         padding-left: Tokens.xl;
@@ -354,19 +356,19 @@ export component AppWindow inherits Window {
                         PageHeader {
                             title: pages[page].title;
                             subtitle: pages[page].sub;
-                            if page == 2: IconButton {
+                            if page == 3: IconButton {
                                 y: (parent.height - self.height) / 2;
                                 icon: Icons.undo;
                                 tip: "Undo the last counted opening";
                                 clicked => { Pages.action("undo"); }
                             }
-                            if page == 2: IconButton {
+                            if page == 3: IconButton {
                                 y: (parent.height - self.height) / 2;
                                 icon: Icons.download;
                                 tip: "Export the openings shown";
                                 clicked => { Pages.action("export"); }
                             }
-                            if page == 2: Rectangle {
+                            if page == 3: Rectangle {
                                 width: 56px;
                                 height: 56px;
                                 border-radius: Tokens.r-lg;
@@ -379,7 +381,7 @@ export component AppWindow inherits Window {
                             }
                         }
                         if page == 1: MatchesPage { vertical-stretch: 1; }
-                        if page == 2: OpeningsPage { vertical-stretch: 1; }
+                        if page == 3: OpeningsPage { vertical-stretch: 1; }
                     }
                 }
             }

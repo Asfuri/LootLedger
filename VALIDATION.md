@@ -40,6 +40,10 @@ What has been checked, and what has not. Earlier history (the Python app and the
 - **Simpler session card (0.8.7):** the 0.8.6 card had six text lines and was hard to read. It now has the chest count, one row of four numbers (matches, time in session, chests per match, chests per hour), a best-match line and a chart. Chest types, results and teammates were removed from it.
   - **Checked:** screenshots in the dark and light theme from a made-up ledger (active session) and from a copy of the real ledger (last session); the four columns are equal width.
   - **Not yet checked:** a narrow card (one column wide), where the labels wrap.
+- **Sessions tab (0.8.8):** a new page between Matches and Openings lists every play session (`stats::session_groups`, the same 30-minute rule as the overview card), with a summary, a sortable table, a date range, and a detail panel for the selected session.
+  - **Checked:** a unit test builds three matches and checks that the sessions come out newest first with the right matches in each. Screenshots of every page from a made-up ledger (50 sessions, 213 matches) in the dark and light theme: the tab bar highlights the right page and every other page still shows the right content after the page numbers moved.
+  - **Not yet checked:** double-clicking a match in the detail panel to open it on the Matches page, sorting every column on a real ledger, and a window narrower than 1000 px.
+  - **Changed:** the tabs after Matches moved down by one, so Ctrl+1 to Ctrl+7 are Overview, Matches, Sessions, Openings, Statistics, Teammates and Settings.
 - **Runtime:** the release exe imports only Windows system DLLs (no dynamic CRT, Python, Qt, .NET or WebView).
 - **Taskbar icon (0.8.2):** an off-screen window reported both a large and a small icon through WM_GETICON.
 - **Match pop-up (0.8.3):**

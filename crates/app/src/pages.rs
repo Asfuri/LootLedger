@@ -1,4 +1,4 @@
-//! Matches, Openings and Teammates: filters, sorting, selection and the detail panels, as in app.py and
+//! Matches, Sessions, Openings and Teammates: filters, sorting, selection and the detail panels, as in app.py and
 //! teammates.py of LootLedger 0.7.1.
 
 use crate::cards::{color, model, series_path};
@@ -44,7 +44,9 @@ pub struct State {
     pub match_sort: (i32, bool),
     pub entry_sort: (i32, bool),
     pub team_sort: (i32, bool),
+    pub session_sort: (i32, bool),
     pub selected_match: String,
+    pub selected_session: String,
     pub selected_entry: String,
     pub selected_person: String,
     pub filters_ready: bool,
@@ -61,6 +63,7 @@ impl State {
             match_sort: (0, true),
             entry_sort: (0, true),
             team_sort: (2, true),
+            session_sort: (0, true),
             ..Default::default()
         }
     }
@@ -205,6 +208,7 @@ pub fn fill(
             .unwrap_or(0) as i32,
     );
     matches(ui, st, snap, p, t, count_broken);
+    sessions(ui, st, snap, p, t);
     entries(ui, st, snap, p, t);
     team(ui, st, snap, p, t);
 }
@@ -312,6 +316,326 @@ pub fn matches(
     if let Some(r) = selected {
         detail(ui, r, p, t);
     }
+}
+
+/// One play session for the Sessions page: its matches (oldest first) and the numbers shown for it.
+struct Summary<'a> {
+    id: String,
+    matches: Vec<&'a MatchRow>,
+    start: DateTime<Local>,
+    end: DateTime<Local>,
+    /// Seconds from the first match's start to the last one's end, lobby time between matches included.
+    span: f64,
+    in_matches: f64,
+    chests: i64,
+    per_match: f64,
+    per_hour: f64,
+    best: &'a MatchRow,
+    place: Option<i64>,
+}
+
+impl<'a> Summary<'a> {
+    fn new(group: &[&'a MatchRow]) -> Summary<'a> {
+        let start = group[0].when;
+        let end = group
+            .iter()
+            .map(|r| r.when + Duration::milliseconds((r.seconds * 1000.0) as i64))
+            .max()
+            .unwrap_or(start);
+        let in_matches: f64 = group.iter().map(|r| r.seconds).sum();
+        let chests: i64 = group.iter().map(|r| r.count).sum();
+        Summary {
+            id: group[0].id.clone(),
+            matches: group.to_vec(),
+            start,
+            end,
+            span: ((end - start).num_milliseconds() as f64 / 1000.0).max(in_matches),
+            in_matches,
+            chests,
+            per_match: chests as f64 / group.len() as f64,
+            per_hour: if in_matches > 0.0 {
+                chests as f64 * 3600.0 / in_matches
+            } else {
+                0.0
+            },
+            best: group
+                .iter()
+                .copied()
+                .reduce(|a, b| if b.count > a.count { b } else { a })
+                .unwrap_or(group[0]),
+            place: group.iter().filter_map(|r| r.placement).min(),
+        }
+    }
+}
+
+/// The Sessions page: every play session in the date range, and the selected one in detail.
+pub fn sessions(ui: &AppWindow, st: &mut State, snap: &Snapshot, p: &Prefs, t: &Theme) {
+    let g = ui.global::<Pages>();
+    let since = since(g.get_session_range(), snap.today_date);
+    let groups = stats::session_groups(&snap.match_rows);
+    g.set_session_empty(groups.is_empty());
+    let mut list: Vec<Summary> = groups
+        .iter()
+        .filter(|group| since.is_none_or(|d| group[0].when.date_naive() >= d))
+        .map(|group| Summary::new(group))
+        .collect();
+
+    // The three headline tiles.
+    let mut records = Vec::new();
+    if list.is_empty() {
+        for _ in 0..3 {
+            records.extend(["–".to_owned(), "No sessions in this view".to_owned()]);
+        }
+    } else {
+        let n = list.len() as f64;
+        let chests: i64 = list.iter().map(|x| x.chests).sum();
+        let span: f64 = list.iter().map(|x| x.span).sum();
+        let games: usize = list.iter().map(|x| x.matches.len()).sum();
+        records.push(format!("{} chests", p.number(chests as f64 / n, 0)));
+        records.push(format!(
+            "{} · {} matches",
+            p.duration(span / n),
+            p.number(games as f64 / n, 1)
+        ));
+        if let Some(x) = list
+            .iter()
+            .reduce(|a, b| if b.span > a.span { b } else { a })
+        {
+            records.push(p.duration(x.span));
+            records.push(format!(
+                "{} · {} chests",
+                p.short_date(x.start.date_naive()),
+                p.int(x.chests)
+            ));
+        }
+        if let Some(x) = list
+            .iter()
+            .reduce(|a, b| if b.chests > a.chests { b } else { a })
+        {
+            records.push(format!("{} chests", p.int(x.chests)));
+            records.push(format!(
+                "{} · {}",
+                p.short_date(x.start.date_naive()),
+                plural(x.matches.len() as i64, "match")
+            ));
+        }
+    }
+    g.set_session_records(model(records.into_iter().map(SharedString::from).collect()));
+    g.set_session_count(s(if groups.is_empty() {
+        String::new()
+    } else {
+        let games: usize = list.iter().map(|x| x.matches.len()).sum();
+        format!(
+            "{} of {} sessions · {} · {} chests",
+            list.len(),
+            groups.len(),
+            plural(games as i64, "match"),
+            p.int(list.iter().map(|x| x.chests).sum())
+        )
+    }));
+
+    let (column, descending) = st.session_sort;
+    list.sort_by(|a, b| {
+        let key = |x: &Summary| -> f64 {
+            match column {
+                1 => x.span,
+                2 => x.matches.len() as f64,
+                3 => x.chests as f64,
+                4 => x.per_match,
+                5 => x.per_hour,
+                6 => x.best.count as f64,
+                7 => x.place.unwrap_or(1_000_000) as f64,
+                _ => x.start.timestamp() as f64,
+            }
+        };
+        let order = key(a).total_cmp(&key(b));
+        if descending { order.reverse() } else { order }
+    });
+    g.set_sessions(model(
+        list.iter()
+            .map(|x| {
+                row(
+                    &x.id,
+                    vec![
+                        p.when(x.start),
+                        p.duration(x.span),
+                        p.int(x.matches.len() as i64),
+                        p.int(x.chests),
+                        p.number(x.per_match, 1),
+                        p.number(x.per_hour, 0),
+                        p.int(x.best.count),
+                        x.place.map_or("–".to_owned(), |n| format!("#{n}")),
+                    ],
+                )
+            })
+            .collect(),
+    ));
+    g.set_session_sort(column);
+    g.set_session_descending(descending);
+
+    let picked = list.iter().find(|x| x.id == st.selected_session);
+    if picked.is_none() {
+        st.selected_session.clear();
+    }
+    g.set_selected_session(s(st.selected_session.clone()));
+    let Some(x) = picked else { return };
+
+    g.set_session_title(s(format!(
+        "{} {} · {}–{}",
+        x.start.format("%a"),
+        p.short_date(x.start.date_naive()),
+        p.clock_time(x.start),
+        p.clock_time(x.end)
+    )));
+    g.set_session_sub(s(format!(
+        "{} · {} in the session · {} in matches",
+        plural(x.matches.len() as i64, "match"),
+        p.duration(x.span),
+        p.duration(x.in_matches)
+    )));
+    let mut parts = vec![
+        format!("{} chests", p.int(x.chests)),
+        format!("{} per match", p.number(x.per_match, 1)),
+    ];
+    if x.in_matches > 0.0 {
+        parts.push(format!("{} per hour", p.number(x.per_hour, 0)));
+    }
+    parts.push(format!(
+        "best match {} chests{}",
+        p.int(x.best.count),
+        x.best
+            .placement
+            .map(|n| format!(" (#{n})"))
+            .unwrap_or_default()
+    ));
+    if let Some(best) = x.place {
+        parts.push(format!("best placement #{best}"));
+        let wins = x.matches.iter().filter(|r| r.placement == Some(1)).count();
+        if wins > 0 {
+            parts.push(format!("{wins} win{}", if wins == 1 { "" } else { "s" }));
+        }
+    }
+    let eliminations: Vec<i64> = x
+        .matches
+        .iter()
+        .filter_map(|r| r.stats.as_ref()?["eliminations"].as_i64())
+        .collect();
+    if !eliminations.is_empty() {
+        let total: i64 = eliminations.iter().sum();
+        parts.push(format!(
+            "{total} elimination{}",
+            if total == 1 { "" } else { "s" }
+        ));
+    }
+    g.set_session_stats(s(parts.join(" · ")));
+
+    let mut mates: Vec<(String, i64)> = Vec::new();
+    for member in x
+        .matches
+        .iter()
+        .flat_map(|r| r.squad.iter().flatten())
+        .filter(|m| !m.me && m.total > 0)
+    {
+        match mates.iter_mut().find(|(name, _)| *name == member.name) {
+            Some((_, n)) => *n += member.total,
+            None => mates.push((member.name.clone(), member.total)),
+        }
+    }
+    mates.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+    g.set_session_team(s(if mates.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "Teammates: {}",
+            mates
+                .iter()
+                .take(5)
+                .map(|(name, n)| format!("{name} {}", p.int(*n)))
+                .collect::<Vec<_>>()
+                .join(" · ")
+        )
+    }));
+
+    let mut types = stats::Counter::default();
+    for r in &x.matches {
+        for (name, n) in &r.types.items {
+            types.add(name, *n);
+        }
+    }
+    let common = types.most_common();
+    let tpeak = common.iter().map(|c| c.1).max().unwrap_or(0).max(1) as f32;
+    g.set_session_types(model(if common.is_empty() {
+        vec![BarRow {
+            label: s("No chests"),
+            ..Default::default()
+        }]
+    } else {
+        common
+            .iter()
+            .map(|(n, c)| BarRow {
+                label: s(n.clone()),
+                fraction: *c as f32 / tpeak,
+                text: s(p.int(*c)),
+                color: color(t.type_color(n)),
+                has_color: true,
+            })
+            .collect()
+    }));
+
+    let peak = x.matches.iter().map(|r| r.count).max().unwrap_or(0).max(1) as f32;
+    g.set_session_points(model(
+        x.matches
+            .iter()
+            .map(|r| ChartPoint {
+                label: s(p.clock_time(r.when)),
+                value: r.count as f32 / peak,
+                tip: s(format!(
+                    "{} · {} · {} chests",
+                    p.clock_time(r.when),
+                    r.mode,
+                    p.int(r.count)
+                )),
+            })
+            .collect(),
+    ));
+    let n = x.matches.len();
+    let shown = n.min(5);
+    g.set_session_axis(model(
+        (0..shown)
+            .map(|k| {
+                let at = if shown <= 1 {
+                    0
+                } else {
+                    k * (n - 1) / (shown - 1)
+                };
+                s(p.clock_time(x.matches[at].when))
+            })
+            .collect(),
+    ));
+    let values: Vec<f64> = x.matches.iter().map(|r| r.count as f64).collect();
+    let (line, area) = series_path(&values, p.chart_style == "smooth");
+    g.set_session_line(s(line));
+    g.set_session_area(s(area));
+    g.set_session_matches(model(
+        x.matches
+            .iter()
+            .map(|r| {
+                row(
+                    &r.id,
+                    vec![
+                        p.when(r.when),
+                        r.mode.clone(),
+                        r.placement.map_or("–".to_owned(), |n| {
+                            format!("#{n}")
+                                + &r.players.map(|t| format!(" / {t}")).unwrap_or_default()
+                        }),
+                        p.int(r.count),
+                        elapsed(r.seconds),
+                    ],
+                )
+            })
+            .collect(),
+    ));
 }
 
 fn detail(ui: &AppWindow, r: &MatchRow, p: &Prefs, t: &Theme) {

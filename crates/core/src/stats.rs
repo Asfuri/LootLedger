@@ -819,22 +819,34 @@ pub fn sessions(rows: &[MatchRow]) -> Vec<Session> {
     result
 }
 
-/// The matches of the newest play session, oldest first (a gap over 30 minutes starts a new session, as in
-/// `sessions`). Hand-added corrections have no match and are left out.
-pub fn latest_session(rows: &[MatchRow]) -> Vec<&MatchRow> {
+/// Matches grouped into play sessions the way `sessions` does (a gap over 30 minutes starts a new one), newest
+/// session first and oldest match first inside each. Hand-added corrections have no match and are left out.
+pub fn session_groups(rows: &[MatchRow]) -> Vec<Vec<&MatchRow>> {
     let mut order: Vec<&MatchRow> = rows.iter().filter(|r| r.mode != "Manual").collect();
     order.sort_by_key(|r| r.when);
     let gap = Duration::minutes(SESSION_GAP_MINUTES);
-    let (mut first, mut end) = (0, None::<DateTime<Local>>);
-    for (i, row) in order.iter().enumerate() {
-        if end.is_some_and(|e| row.when - e > gap) {
-            first = i;
-            end = None;
-        }
+    let mut groups: Vec<Vec<&MatchRow>> = Vec::new();
+    let mut end: Option<DateTime<Local>> = None;
+    for row in order {
         let finished = row.when + seconds(row.seconds);
-        end = Some(end.map_or(finished, |e| e.max(finished)));
+        match (groups.last_mut(), end) {
+            (Some(group), Some(e)) if row.when - e <= gap => {
+                group.push(row);
+                end = Some(e.max(finished));
+            }
+            _ => {
+                groups.push(vec![row]);
+                end = Some(finished);
+            }
+        }
     }
-    order.split_off(first)
+    groups.reverse();
+    groups
+}
+
+/// The matches of the newest play session, oldest first.
+pub fn latest_session(rows: &[MatchRow]) -> Vec<&MatchRow> {
+    session_groups(rows).into_iter().next().unwrap_or_default()
 }
 
 pub struct Goal {
@@ -1099,5 +1111,18 @@ mod tests {
         assert_eq!(newest_session(&[first.clone(), second.clone()]), ["a", "b"]);
         assert_eq!(newest_session(&[first, second, later]), ["c"]);
         assert!(newest_session(&[]).is_empty());
+    }
+
+    #[test]
+    fn session_groups_list_every_session_newest_first() {
+        let first = played("a", at(10, 10, 0), 1200.0, 20);
+        let second = played("b", at(10, 10, 40), 1200.0, 30);
+        let later = played("c", at(10, 14, 0), 900.0, 10);
+        let snap = compute(&[], &[first, second, later], at(10, 23, 0), None, true);
+        let groups: Vec<Vec<&str>> = session_groups(&snap.match_rows)
+            .iter()
+            .map(|g| g.iter().map(|r| r.id.as_str()).collect())
+            .collect();
+        assert_eq!(groups, [vec!["c"], vec!["a", "b"]]);
     }
 }
