@@ -528,6 +528,16 @@ pub fn sessions(ui: &AppWindow, st: &mut State, snap: &Snapshot, p: &Prefs, t: &
         ));
     }
     g.set_session_stats(s(parts.join(" · ")));
+    let won: Vec<stats::RewardRow> = x
+        .matches
+        .iter()
+        .flat_map(|r| r.rewards.iter().cloned())
+        .collect();
+    g.set_session_rewards(s(if won.is_empty() {
+        String::new()
+    } else {
+        format!("Rewards: {}", reward_text(&won))
+    }));
 
     let mut mates: Vec<(String, i64)> = Vec::new();
     for member in x
@@ -638,8 +648,39 @@ pub fn sessions(ui: &AppWindow, st: &mut State, snap: &Snapshot, p: &Prefs, t: &
     ));
 }
 
+/// "Gold car decal (you, 1:02, from a chest) · Back bling (PixelFox, 5:10)": who got which prize and when.
+fn reward_text(rewards: &[stats::RewardRow]) -> String {
+    rewards
+        .iter()
+        .map(|r| {
+            let who = match r.by.as_str() {
+                "me" => "you".to_owned(),
+                "team" => r.player.clone().unwrap_or_else(|| "a teammate".into()),
+                _ => "another player".to_owned(),
+            };
+            let name = if r.recognized() {
+                r.category.clone()
+            } else {
+                format!("Unrecognized reward ({})", r.prize)
+            };
+            let from = r
+                .chest
+                .as_deref()
+                .map(|c| format!(", from a {}", c.to_lowercase()))
+                .unwrap_or_default();
+            format!("{name} ({who}, {}{from})", elapsed(r.t))
+        })
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
 fn detail(ui: &AppWindow, r: &MatchRow, p: &Prefs, t: &Theme) {
     let g = ui.global::<Pages>();
+    g.set_detail_rewards(s(if r.rewards.is_empty() {
+        String::new()
+    } else {
+        format!("Rewards: {}", reward_text(&r.rewards))
+    }));
     g.set_detail_title(s(format!("{} · {}", r.mode, p.when(r.when))));
     let place = r.placement.map_or("No placement recorded".to_owned(), |n| {
         format!("#{n}") + &r.players.map(|t| format!(" of {t}")).unwrap_or_default()

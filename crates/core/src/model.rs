@@ -30,6 +30,62 @@ pub struct Opening {
     pub episode: u32,
 }
 
+/// A prize the replay recorded from a treasure roll (the Treasure Hunt event). The game spawns a short-lived
+/// animated chest for each roll; it carries who opened the chest and the prize template id.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Reward {
+    pub t: f64,
+    /// The prize template id as the game names it, e.g. "DelilahPrize:dpid_item3".
+    pub prize: String,
+    /// The animated chest class that showed the prize.
+    pub cls: String,
+    pub by: String,
+    pub player: Option<String>,
+    pub player_id: Option<String>,
+    pub pawn: Option<u32>,
+    /// The chest it came from, when the replay shows that chest being opened.
+    pub chest: Option<String>,
+    pub actor: u32,
+    pub index: u32,
+}
+
+/// Reward types in the order they are listed, with the in-game prize ids of each (`dpid_item<N>`).
+const REWARD_ITEMS: [(&str, &str, &[u32]); 7] = [
+    ("Gold outfit", "Supreme", &[1, 14, 19, 24, 29]),
+    ("Pickaxe", "Major", &[2]),
+    ("Back bling", "Major", &[15, 20, 25, 30]),
+    ("Jam track", "Major", &[3, 16, 21, 26, 31]),
+    ("Loading screen", "Major", &[4, 17, 22, 27, 32]),
+    ("Gold car decal", "Major", &[5, 18, 23, 28, 33]),
+    ("Gizmo", "Standard", &[9, 10, 11, 12, 13]),
+];
+const PIRATE_SHOP_ACCESS: &str = "9f73f94d-2e61-4523-97d7-d61235d3365e";
+pub const UNRECOGNIZED_REWARD: &str = "Unrecognized reward";
+
+/// The reward types LootLedger knows, in display order (the unrecognized one is counted apart).
+pub fn reward_types() -> impl Iterator<Item = &'static str> {
+    REWARD_ITEMS
+        .iter()
+        .map(|r| r.0)
+        .chain(std::iter::once("Pirate shop"))
+}
+
+/// (type, tier) of a prize template id. A prize this version does not know is its own type, so it is never
+/// guessed into one of the typed totals.
+pub fn reward_info(prize: &str) -> (&'static str, &'static str) {
+    if prize.eq_ignore_ascii_case(PIRATE_SHOP_ACCESS) {
+        return ("Pirate shop", "Supreme");
+    }
+    let number = prize
+        .to_ascii_lowercase()
+        .strip_prefix("delilahprize:dpid_item")
+        .and_then(|n| n.parse::<u32>().ok());
+    number
+        .and_then(|n| REWARD_ITEMS.iter().find(|r| r.2.contains(&n)))
+        .map_or((UNRECOGNIZED_REWARD, "Unknown"), |r| (r.0, r.1))
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Replay {
@@ -55,6 +111,9 @@ pub struct Replay {
     pub teammates: Vec<Player>,
     #[serde(default)]
     pub events: Vec<Opening>,
+    /// Prizes from treasure rolls (empty outside the Treasure Hunt event).
+    #[serde(default)]
+    pub rewards: Vec<Reward>,
     pub error: Option<String>,
 }
 
@@ -197,6 +256,14 @@ impl Replay {
                 return Err("Invalid replay opening".into());
             }
         }
+        for r in &self.rewards {
+            if !r.t.is_finite()
+                || !(0.0..=u32::MAX as f64 / 1000.0).contains(&r.t)
+                || !["me", "team", "other", "unknown"].contains(&r.by.as_str())
+            {
+                return Err("Invalid replay reward".into());
+            }
+        }
         Ok(())
     }
     pub fn summarize(&self) -> (Vec<(&Opening, &'static str)>, Value) {
@@ -317,6 +384,17 @@ impl Replay {
         if let Some(stats) = &self.stats {
             meta["stats"] = stats.clone();
         }
+        // Always present (empty outside the event), so a match is re-read for rewards only once.
+        meta["rewards"] = Value::Array(
+            self.rewards
+                .iter()
+                .map(|r| {
+                    let (category, tier) = reward_info(&r.prize);
+                    json!({"t": r.t, "prize": r.prize, "category": category, "tier": tier,
+                        "by": r.by, "player": r.player, "chest": r.chest.as_deref().map(|c| classify(c).0)})
+                })
+                .collect(),
+        );
         (mine, meta)
     }
 }
@@ -356,5 +434,37 @@ mod tests {
             Uuid::new_v5(&NAMESPACE, r.key().as_bytes()).to_string()
         );
         assert_eq!(mode_name(Some("Playlist_NoBuildBR_Duo")), "Zero Build Duo");
+        assert_eq!(meta["rewards"], json!([]));
+    }
+    #[test]
+    fn prize_ids_map_to_reward_types() {
+        assert_eq!(
+            reward_info("DelilahPrize:dpid_item1"),
+            ("Gold outfit", "Supreme")
+        );
+        assert_eq!(reward_info("DelilahPrize:dpid_item2"), ("Pickaxe", "Major"));
+        assert_eq!(
+            reward_info("DelilahPrize:dpid_item25"),
+            ("Back bling", "Major")
+        );
+        assert_eq!(
+            reward_info("delilahprize:dpid_item31"),
+            ("Jam track", "Major")
+        );
+        assert_eq!(
+            reward_info("DelilahPrize:dpid_item12"),
+            ("Gizmo", "Standard")
+        );
+        assert_eq!(
+            reward_info("9F73F94D-2E61-4523-97D7-D61235D3365E"),
+            ("Pirate shop", "Supreme")
+        );
+        // Not in the table: never guessed into a typed total.
+        assert_eq!(
+            reward_info("DelilahPrize:dpid_item99").0,
+            UNRECOGNIZED_REWARD
+        );
+        assert_eq!(reward_info("").0, UNRECOGNIZED_REWARD);
+        assert_eq!(reward_types().count(), 8);
     }
 }

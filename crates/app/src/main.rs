@@ -799,6 +799,69 @@ fn scan() {
     });
 }
 
+/// Every recorded prize as CSV or JSON rows: when, match, type, tier, who got it and where from.
+fn export_rewards() {
+    let rows = with_app(|app| {
+        let snap = app.snap.as_ref()?;
+        let mut out = Vec::new();
+        for row in snap.match_rows.iter().rev() {
+            for r in &row.rewards {
+                let who = match r.by.as_str() {
+                    "me" => "You",
+                    "team" => "Teammate",
+                    "other" => "Other player",
+                    _ => "Unknown",
+                };
+                let at = row.when + chrono::Duration::milliseconds((r.t * 1000.0).round() as i64);
+                out.push(
+                    serde_json::json!({
+                        "when": at.format("%Y-%m-%d %H:%M:%S").to_string(),
+                        "match_id": row.id,
+                        "mode": row.mode,
+                        "reward": if r.recognized() { r.category.clone() } else { String::new() },
+                        "tier": r.tier,
+                        "prize_id": r.prize,
+                        "received_by": who,
+                        "player": r.player.clone().unwrap_or_default(),
+                        "chest": r.chest.clone().unwrap_or_default(),
+                        "replay_time": prefs::elapsed(r.t),
+                    })
+                    .as_object()
+                    .cloned()?,
+                );
+            }
+        }
+        Some(out)
+    })
+    .flatten()
+    .unwrap_or_default();
+    if rows.is_empty() {
+        snack("No rewards recorded yet");
+        return;
+    }
+    let fields = [
+        "when",
+        "match_id",
+        "mode",
+        "reward",
+        "tier",
+        "prize_id",
+        "received_by",
+        "player",
+        "chest",
+        "replay_time",
+    ];
+    if let Some(path) = rfd::FileDialog::new()
+        .set_file_name("lootledger-rewards.csv")
+        .add_filter("CSV", &["csv"])
+        .add_filter("JSON", &["json"])
+        .save_file()
+        && report(lootledger_core::store::export_rows(&path, &rows, &fields)).is_some()
+    {
+        snack(format!("Exported {} rewards", rows.len()));
+    }
+}
+
 fn scan_finished(result: live::ScanResult) {
     let again = with_app(|app| {
         app.scanning = false;
@@ -1830,6 +1893,7 @@ fn settings_action(action: &str) {
             }
             scan();
         }
+        "Export rewards" => export_rewards(),
         "Export ledger" => {
             if let Some(path) = rfd::FileDialog::new()
                 .set_file_name("lootledger-export.json")
@@ -1988,8 +2052,8 @@ const PAGE_NAMES: [&str; 7] = [
     "Settings",
 ];
 const WHATS_NEW: [&str; 3] = [
-    "New Sessions tab: every play session with its length, matches, chests and pace. Select one to see its matches, chest types and teammates.",
-    "The pages after Matches moved down by one, so the shortcuts are now Ctrl+1 to Ctrl+7.",
+    "New Rewards: the prizes your treasure rolls gave you (Treasure Hunt event) are counted by type, on a new Overview card and the Statistics page.",
+    "Match and session details list each prize and who got it. Settings has Export rewards. The first start re-reads your saved replays once to find them.",
     "Your data still never leaves this PC; only the version check and the download go over the internet.",
 ];
 

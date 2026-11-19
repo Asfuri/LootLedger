@@ -81,6 +81,28 @@ pub struct SquadMember {
     pub containers: Counter,
 }
 
+/// A prize a match's replay recorded (a treasure roll), as stored in the match's meta.
+#[derive(Debug, Clone)]
+pub struct RewardRow {
+    pub t: f64,
+    /// The prize template id as the game names it.
+    pub prize: String,
+    /// The reward type, or `model::UNRECOGNIZED_REWARD` for a prize this version has no name for.
+    pub category: String,
+    pub tier: String,
+    /// "me", "team", "other" or "unknown".
+    pub by: String,
+    pub player: Option<String>,
+    /// The kind of chest it came from, when the replay showed that chest being opened.
+    pub chest: Option<String>,
+}
+
+impl RewardRow {
+    pub fn recognized(&self) -> bool {
+        self.category != crate::model::UNRECOGNIZED_REWARD
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MatchRow {
     pub id: String,
@@ -101,6 +123,8 @@ pub struct MatchRow {
     pub unattributed: i64,
     /// The recorder's match stats (damage, accuracy, materials...), when the replay had them.
     pub stats: Option<Value>,
+    /// Prizes the replay recorded: yours, your teammates' and those of other players near you.
+    pub rewards: Vec<RewardRow>,
     pub note: String,
     pub tags: String,
     pub favorite: bool,
@@ -182,6 +206,15 @@ pub struct Snapshot {
     pub team_broken: i64,
     pub team_containers: Counter,
     pub unattributed: i64,
+    /// Rewards by type: yours and your teammates' (a minimum, like the chest counts).
+    pub rewards: Counter,
+    pub team_rewards: Counter,
+    /// Prizes this version has no name for, counted apart from the typed totals.
+    pub unrecognized_rewards: i64,
+    /// Your rewards per day (typed ones only).
+    pub reward_days: BTreeMap<NaiveDate, i64>,
+    /// Matches read before rewards were recorded; their rewards are unknown.
+    pub no_reward_data: i64,
     pub board: Vec<Person>,
     pub older_matches: i64,
     pub team_per_match: Option<f64>,
@@ -553,6 +586,27 @@ fn median(values: &[i64]) -> Option<f64> {
     }
 }
 
+fn reward_rows(meta: &Value) -> Vec<RewardRow> {
+    meta["rewards"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|r| {
+            // The type comes from the prize id, so a newer version that knows more ids fixes old matches.
+            let (category, tier) = crate::model::reward_info(r["prize"].as_str().unwrap_or(""));
+            RewardRow {
+                t: r["t"].as_f64().unwrap_or(0.0),
+                prize: r["prize"].as_str().unwrap_or("").to_owned(),
+                category: category.to_owned(),
+                tier: tier.to_owned(),
+                by: r["by"].as_str().unwrap_or("unknown").to_owned(),
+                player: r["player"].as_str().map(str::to_owned),
+                chest: r["chest"].as_str().map(str::to_owned),
+            }
+        })
+        .collect()
+}
+
 fn first_of_month(d: NaiveDate) -> NaiveDate {
     d.with_day(1).expect("first of month")
 }
@@ -599,6 +653,9 @@ pub fn compute(
     let (mut containers, mut team_types, mut team_containers) =
         (Counter::default(), Counter::default(), Counter::default());
     let (mut team_opened, mut team_broken, mut unattributed) = (0, 0, 0);
+    let (mut rewards, mut team_rewards) = (Counter::default(), Counter::default());
+    let (mut unrecognized_rewards, mut no_reward_data) = (0, 0);
+    let mut reward_days: BTreeMap<NaiveDate, i64> = BTreeMap::new();
     let mut rows = Vec::new();
     let empty = Value::Null;
     for m in matches {
@@ -640,6 +697,20 @@ pub fn compute(
                 containers.add(name, n.as_i64().unwrap_or(0));
             }
             unattributed += meta["unattributed"].as_i64().unwrap_or(0);
+            if meta.get("rewards").is_none() {
+                no_reward_data += 1;
+            }
+            for r in reward_rows(meta) {
+                match (r.by.as_str(), r.recognized()) {
+                    ("me", true) => {
+                        rewards.add(&r.category, 1);
+                        *reward_days.entry(m.started.date_naive()).or_default() += 1;
+                    }
+                    ("team", true) => team_rewards.add(&r.category, 1),
+                    ("me" | "team", false) => unrecognized_rewards += 1,
+                    _ => {}
+                }
+            }
             for p in squad_rows.iter().flatten().filter(|p| !p.me) {
                 for (name, n) in &p.containers.items {
                     team_containers.add(name, *n);
@@ -679,6 +750,7 @@ pub fn compute(
                 .get("stats")
                 .filter(|s| s.as_object().is_some_and(|o| !o.is_empty()))
                 .cloned(),
+            rewards: reward_rows(meta),
             note: m.note.clone(),
             tags: m.tags.clone(),
             favorite: m.favorite,
@@ -758,6 +830,11 @@ pub fn compute(
         team_broken,
         team_containers,
         unattributed,
+        rewards,
+        team_rewards,
+        unrecognized_rewards,
+        reward_days,
+        no_reward_data,
         board,
         older_matches: analyzed
             .iter()
@@ -1091,6 +1168,33 @@ mod tests {
             tags: String::new(),
             favorite: false,
         }
+    }
+
+    #[test]
+    fn rewards_are_counted_by_type_and_by_who_got_them() {
+        let with_rewards = MatchIn {
+            meta: Some(serde_json::json!({"mode": "Solo", "rewards": [
+                {"t": 10.0, "prize": "DelilahPrize:dpid_item2", "by": "me"},
+                {"t": 20.0, "prize": "DelilahPrize:dpid_item12", "by": "team", "player": "Mate"},
+                {"t": 25.0, "prize": "DelilahPrize:dpid_item2", "by": "me"},
+                {"t": 30.0, "prize": "DelilahPrize:dpid_item99", "by": "me"},
+                {"t": 40.0, "prize": "DelilahPrize:dpid_item3", "by": "other"},
+            ]})),
+            ..played("a", at(10, 10, 0), 600.0, 10)
+        };
+        // Read before rewards were recorded: its rewards are unknown, not zero.
+        let old = played("b", at(9, 10, 0), 600.0, 10);
+        let s = compute(&[], &[with_rewards, old], at(10, 23, 0), None, true);
+        assert_eq!(s.rewards.get("Pickaxe"), 2);
+        assert_eq!(s.rewards.total(), 2);
+        assert_eq!(s.team_rewards.get("Gizmo"), 1);
+        assert_eq!(s.unrecognized_rewards, 1); // counted apart from the typed totals
+        assert_eq!(s.reward_days.get(&at(10, 0, 0).date_naive()), Some(&2));
+        assert_eq!(s.no_reward_data, 1);
+        let row = s.match_rows.iter().find(|r| r.id == "a").unwrap();
+        assert_eq!(row.rewards.len(), 5);
+        assert_eq!(row.rewards[1].player.as_deref(), Some("Mate"));
+        assert!(!row.rewards[3].recognized() && row.rewards[0].recognized());
     }
 
     fn newest_session(matches: &[MatchIn]) -> Vec<String> {

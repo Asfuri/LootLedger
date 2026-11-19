@@ -44,6 +44,12 @@ What has been checked, and what has not. Earlier history (the Python app and the
   - **Checked:** a unit test builds three matches and checks that the sessions come out newest first with the right matches in each. Screenshots of every page from a made-up ledger (50 sessions, 213 matches) in the dark and light theme: the tab bar highlights the right page and every other page still shows the right content after the page numbers moved.
   - **Not yet checked:** double-clicking a match in the detail panel to open it on the Matches page, sorting every column on a real ledger, and a window narrower than 1000 px.
   - **Changed:** the tabs after Matches moved down by one, so Ctrl+1 to Ctrl+7 are Overview, Matches, Sessions, Openings, Statistics, Teammates and Settings.
+- **Rewards (0.8.9):** the replay decoder reads the treasure-roll prizes (the animated chest actors of the Treasure Hunt event: success flag, opener, source chest, prize id). Types come from the prize id (`model::reward_info`).
+  - **Checked on real replays:** 100 saved replays decode with identical chest results before and after the change, and 4 rewards are found in them (3 yours and 1 a teammate's: a loading screen, a back bling and two gold car decals). Importing those 4 into a copy of the real ledger gives you 3, teammates 1, no unrecognized prizes.
+  - **Unit tests:** prize id to type mapping (including an unknown id), counting by type and by who got it with unrecognized prizes kept apart, matches without reward data counted separately, and the one-time addition of the Rewards card to a saved layout.
+  - **Screenshots:** the Overview card, the Statistics card, a match, a session, in the dark and light theme with made-up data.
+  - **Not checked:** the Export rewards file, and the decoder against prizes of future event weeks (an unknown prize id shows as "not recognized").
+  - **Limits:** only prizes the game recorded near you are counted. Receipts for prizes that other players got (an ability the game grants, with no prize id) are not read.
 - **Runtime:** the release exe imports only Windows system DLLs (no dynamic CRT, Python, Qt, .NET or WebView).
 - **Taskbar icon (0.8.2):** an off-screen window reported both a large and a small icon through WM_GETICON.
 - **Match pop-up (0.8.3):**

@@ -53,6 +53,20 @@ The Sessions tab lists all your play sessions, newest first. Pick a date range, 
 - **The list:** start time, length, matches, chests, chests per match and per hour, best match and best placement.
 - **Details:** chest types, a chart of chests per match, wins and eliminations, your top teammates and every match in the session. Double-click a match to open it.
 
+### Rewards from treasure rolls
+
+During the Treasure Hunt event, opening a chest can roll a prize. LootLedger reads the prizes your replays recorded and counts them by type: Gold outfit, Pickaxe, Back bling, Jam track, Loading screen, Gold car decal, Gizmo and Pirate shop.
+
+<p>
+  <img src=".github/readme/rewards-card.png" width="360" alt="The Rewards card on the Overview page">
+  <img src=".github/readme/rewards-types.png" width="360" alt="The Rewards by type card on the Statistics page">
+</p>
+
+- **Overview:** a Rewards card with your total, your top three types and how many your teammates got.
+- **Statistics:** your count and your teammates' count for every type.
+- **Details:** each match and session lists its prizes, who got them and when. Settings has **Export rewards** (CSV or JSON).
+- **Counts are minimums.** A prize only appears when the game recorded its animation in your replay, so prizes won far from you usually don't, and Gizmos may be missing. A prize the app has no name for is counted apart and never guessed into a type.
+
 ### A dashboard you can arrange
 
 Today, this week, all time, last match, chests per match and per hour, goals, sessions, records and more. Click the tune button to add, remove, resize and drag cards.
@@ -156,5 +170,7 @@ Pushing a `v*` tag runs `.github/workflows/release.yml`. It checks formatting, l
 - `scripts/` holds two helpers:
   - `subset_icons.py`: rebuilds the icon font.
   - `check_pe_runtime.py`: the runtime-DLL check used in CI.
+
+The prize format was worked out with the help of the documentation and source of [FortniteChestTracker](https://github.com/Loukious/FortniteChestTracker), which was suggested in [issue #1](https://github.com/femboypuppy/LootLedger/issues/1). No code was copied from it.
 
 [Made with Slint](https://slint.dev). Licences are in [THIRD_PARTY.md](THIRD_PARTY.md); test notes are in [VALIDATION.md](VALIDATION.md). Fortnite is a trademark of Epic Games; LootLedger is not affiliated with or endorsed by Epic.

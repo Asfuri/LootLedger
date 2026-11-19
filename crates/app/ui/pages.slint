@@ -29,6 +29,7 @@ export global Pages {
     in property <string> detail-title;
     in property <string> detail-sub;
     in property <string> detail-stats;
+    in property <string> detail-rewards;
     in property <bool> detail-favorite;
     in property <string> detail-tags;
     in property <string> detail-note;
@@ -84,6 +85,7 @@ export global Pages {
     in property <string> session-title;
     in property <string> session-sub;
     in property <string> session-stats;
+    in property <string> session-rewards;
     in property <string> session-team;
     in property <[BarRow]> session-types;
     in property <[ChartPoint]> session-points;
@@ -271,6 +273,7 @@ export component MatchesPage inherits VerticalLayout {
                     Text { text: Pages.detail-title; font-size: Tokens.title; font-weight: 600; color: Tokens.on-surface; }
                     Text { text: Pages.detail-sub; font-size: Tokens.body; color: Tokens.on-surface-variant; wrap: word-wrap; }
                     if Pages.detail-stats != "": Text { text: Pages.detail-stats; font-size: Tokens.body; color: Tokens.on-surface; wrap: word-wrap; }
+                    if Pages.detail-rewards != "": Text { text: Pages.detail-rewards; font-size: Tokens.body; color: Tokens.primary; wrap: word-wrap; }
                 }
                 IconButton {
                     icon: Icons.star;
@@ -510,6 +513,7 @@ export component SessionsPage inherits VerticalLayout {
                 IconButton { icon: Icons.close; tip: "Close session details"; clicked => { Pages.select("sessions", ""); } }
             }
             SectionText { text: Pages.session-stats; tone: 1; }
+            if Pages.session-rewards != "": SectionText { text: Pages.session-rewards; tone: 2; }
             if Pages.session-team != "": SectionText { text: Pages.session-team; }
             HorizontalLayout {
                 spacing: Tokens.xl;

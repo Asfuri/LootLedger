@@ -363,7 +363,7 @@ export component SettingsPage inherits VerticalLayout {
             hint: "Stored in " + Settings.data-folder + ". Backups hold matches, openings and your edit history.";
             VerticalLayout {
                 spacing: Tokens.s;
-                for pair in [["Export ledger", "Create backup"], ["Restore backup", "Open data folder"], ["Export settings", "Import settings"]]: HorizontalLayout {
+                for pair in [["Export ledger", "Create backup"], ["Restore backup", "Open data folder"], ["Export settings", "Import settings"], ["Export rewards"]]: HorizontalLayout {
                     spacing: Tokens.s;
                     for text in pair: Button { min-width: 180px; text: text; clicked => { Settings.action(text); } }
                 }

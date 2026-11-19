@@ -32,6 +32,8 @@ pub const WIDGETS: &[(&str, i32)] = &[
     ("trophies", 2),
     ("compare", 2),
     ("stats", 2),
+    ("rewards", 1),
+    ("reward_types", 1),
 ];
 pub const DEFAULT_LAYOUT: &[&str] = &[
     "live",
@@ -41,6 +43,7 @@ pub const DEFAULT_LAYOUT: &[&str] = &[
     "stat:last",
     "stat:avg",
     "stat:per_hour",
+    "rewards",
     "trend",
     "types",
     "goals",
@@ -152,6 +155,7 @@ prefs! {
     trophies: Vec<String> = Vec::new(),
     colorblind: bool = false,
     seen_version: String = String::new(),
+    rewards_card_added: bool = false,
     show_page_title: bool = false,
     auto_update: bool = true,
 }
@@ -275,6 +279,25 @@ impl Prefs {
         }
         if let Some(layout) = map.get("layout") {
             prefs.layout = normalize_layout(layout);
+        }
+        // The Rewards card arrived in 0.8.9: a saved layout gets it once, after the chest-counting tiles.
+        // Removing it later sticks.
+        if !prefs.rewards_card_added {
+            prefs.rewards_card_added = true;
+            if !prefs.layout.iter().any(|i| i.id == "rewards") {
+                let at = prefs
+                    .layout
+                    .iter()
+                    .position(|i| i.id == "stat:per_hour")
+                    .map_or(prefs.layout.len(), |i| i + 1);
+                prefs.layout.insert(
+                    at,
+                    Item {
+                        id: "rewards".into(),
+                        span: 1,
+                    },
+                );
+            }
         }
         prefs
     }
@@ -448,12 +471,39 @@ mod tests {
                 Item {
                     id: "types".into(),
                     span: 2
+                },
+                // Added once to a saved layout that does not have it.
+                Item {
+                    id: "rewards".into(),
+                    span: 1
                 }
             ]
         );
         let back = Prefs::from_value(&p.to_value());
         assert_eq!(back, p);
         assert_eq!(p.to_value()["animations"], json!(false));
+    }
+
+    #[test]
+    fn the_rewards_card_is_added_once_and_stays_removed() {
+        let ids = |p: &Prefs| p.layout.iter().map(|i| i.id.clone()).collect::<Vec<_>>();
+        // An older layout gets the card right after the chests-per-hour tile.
+        let old = Prefs::from_value(&json!({"layout": ["stat:per_hour", "trend"]}));
+        assert_eq!(ids(&old), ["stat:per_hour", "rewards", "trend"]);
+        assert!(old.rewards_card_added);
+        // After the user removed it, loading the saved file does not bring it back.
+        let mut saved = old.clone();
+        saved.layout.retain(|i| i.id != "rewards");
+        let again = Prefs::from_value(&saved.to_value());
+        assert_eq!(ids(&again), ["stat:per_hour", "trend"]);
+        // A fresh install has it from the start, once.
+        assert_eq!(
+            ids(&Prefs::default())
+                .iter()
+                .filter(|i| *i == "rewards")
+                .count(),
+            1
+        );
     }
 
     #[test]
