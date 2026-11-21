@@ -6,6 +6,8 @@ use std::collections::BTreeMap;
 use uuid::Uuid;
 
 pub const NAMESPACE: Uuid = Uuid::from_u128(0x2f9c6a4e8d1b4e579b0a6c3e1d7f5a21);
+/// Bump when replay parsing fixes change counted openings so existing ledgers automatically rescan.
+pub const PARSER_VERSION: i64 = 2;
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -356,6 +358,7 @@ impl Replay {
             "containers": containers, "team": team, "team_players": teammates, "complete": self.ok,
             "error": self.error, "branch": self.branch, "players": ordered, "unattributed": unattributed,
             "treasures": my_treasures, "team_treasures": team_treasures, "seen_prizes": seen_prizes,
+            "parser_v": PARSER_VERSION,
         });
         if let Some(stats) = &self.stats {
             meta["stats"] = stats.clone();

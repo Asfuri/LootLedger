@@ -242,7 +242,19 @@ struct Container {
     current: Option<usize>,
     searched: bool,
     destroyed: bool,
+    last_t: f32,
     episodes: Vec<Episode>,
+}
+
+struct PendingContainerProp {
+    t: f32,
+    g: usize,
+    handle: u32,
+    actor: u32,
+    path: String,
+    is_open: bool,
+    bits: usize,
+    data: Vec<u8>,
 }
 
 #[derive(Clone, Default)]
@@ -282,6 +294,8 @@ struct GrantEvent {
 struct Chest {
     containers: Vec<(u32, Container)>,
     container_of: HashMap<u32, usize>,
+    container_by_path: HashMap<String, usize>,
+    pending_container_props: Vec<PendingContainerProp>,
     pawn_to_state: HashMap<u32, u32>,
     states: Vec<(u32, StateInfo)>,
     state_of: HashMap<u32, usize>,
@@ -339,6 +353,7 @@ struct Decoder {
     by_path: HashMap<String, usize>,
     from_index: HashMap<u32, usize>,
     guid_paths: HashMap<u32, String>,
+    guid_outer: HashMap<u32, u32>,
     guid_group: HashMap<u32, usize>,
     cleaned: HashMap<u32, String>,
     failed: HashSet<String>,
@@ -384,6 +399,7 @@ pub fn decode(file: &str, data: &[u8]) -> Replay {
         by_path: HashMap::new(),
         from_index: HashMap::new(),
         guid_paths: HashMap::new(),
+        guid_outer: HashMap::new(),
         guid_group: HashMap::new(),
         cleaned: HashMap::new(),
         failed: HashSet::new(),
@@ -770,7 +786,10 @@ impl Decoder {
     }
 
     fn set_export(&mut self, group: Option<usize>, field: Option<(u32, String)>) {
-        if let (Some(g), Some((handle, name))) = (group, field) {
+        let Some((g, (handle, name))) = group.zip(field) else {
+            return;
+        };
+        let in_bounds = {
             let group = &mut self.groups[g];
             if handle < group.len {
                 group.exports.insert(
@@ -780,6 +799,54 @@ impl Decoder {
                         incompatible: false,
                         prop: None,
                     },
+                );
+                true
+            } else {
+                false
+            }
+        };
+        if in_bounds
+            && self
+                .chest
+                .pending_container_props
+                .iter()
+                .any(|p| p.g == g && p.handle == handle)
+        {
+            self.flush_pending_container_props(g, handle);
+        }
+    }
+
+    fn flush_pending_container_props(&mut self, g: usize, handle: u32) {
+        let mut ready = Vec::new();
+        let mut i = 0;
+        while i < self.chest.pending_container_props.len() {
+            let p = &self.chest.pending_container_props[i];
+            if p.g == g && p.handle == handle {
+                ready.push(self.chest.pending_container_props.remove(i));
+            } else {
+                i += 1;
+            }
+        }
+        for entry in ready {
+            let mut ar = BitReader::owned(entry.data, entry.bits, self.ver);
+            let mut values = Values(Vec::new());
+            if let Ok(found) = self.read_field(
+                &mut ar,
+                g,
+                handle,
+                entry.bits as i64,
+                Class::Container,
+                &mut values,
+            ) && found
+                && !self.cmd.error
+                && self.cmd.at_end()
+            {
+                self.on_container_deferred(
+                    entry.actor,
+                    &entry.path,
+                    &values,
+                    entry.is_open,
+                    entry.t,
                 );
             }
         }
@@ -968,12 +1035,15 @@ impl Decoder {
         if guid == 1 || exporting {
             let flags = ar.read_byte()?;
             if flags & 1 != 0 {
-                self.load_object(ar, true, depth + 1)?;
+                let outer = self.load_object(ar, true, depth + 1)?;
                 let path = ar.read_fstring()?;
                 if flags & 4 != 0 {
                     ar.read_u32()?;
                 }
                 if exporting {
+                    if outer != 0 {
+                        self.guid_outer.insert(guid, outer);
+                    }
                     let clean = remove_all_path_prefixes(&path).to_owned();
                     let lower = clean.to_ascii_lowercase();
                     if lower.contains("treasurehandler") {
@@ -1255,7 +1325,7 @@ impl Decoder {
             return Ok(true);
         };
         if has_rep {
-            if !self.receive_properties(ar, g, b.ch)? {
+            if !self.receive_properties(ar, g, b.ch, b.open)? {
                 return Ok(false);
             }
             self.external_data(g, b.ch)?;
@@ -1440,7 +1510,13 @@ impl Decoder {
             .map(|(guid, _)| guid)
     }
 
-    fn receive_properties(&mut self, ar: &mut BitReader<'_>, g: usize, ch: u32) -> R<bool> {
+    fn receive_properties(
+        &mut self,
+        ar: &mut BitReader<'_>,
+        g: usize,
+        ch: u32,
+        is_open: bool,
+    ) -> R<bool> {
         let path = self.groups[g].path.clone();
         match &self.channels[ch as usize] {
             None => return Ok(false),
@@ -1479,7 +1555,28 @@ impl Decoder {
             }
             match self.groups[g].exports.get(&handle) {
                 None => {
-                    ar.skip_bits(bits);
+                    if class == Class::Container
+                        && bits <= 128
+                        && let Some(actor) = self.actor_of(ch)
+                    {
+                        let data = ar.read_bits(bits)?;
+                        if !ar.error {
+                            self.chest
+                                .pending_container_props
+                                .push(PendingContainerProp {
+                                    t: self.frame_time,
+                                    g,
+                                    handle,
+                                    actor,
+                                    path: path.clone(),
+                                    is_open,
+                                    bits: bits as usize,
+                                    data,
+                                });
+                        }
+                    } else {
+                        ar.skip_bits(bits);
+                    }
                     continue;
                 }
                 Some(e) if e.incompatible => {
@@ -1497,8 +1594,8 @@ impl Decoder {
                 e.incompatible = true;
             }
         }
-        if has_data {
-            self.on_export(ch, class, &path, &values)?;
+        if has_data || (is_open && class == Class::Container) {
+            self.on_export(ch, class, &path, &values, is_open)?;
         }
         Ok(true)
     }
@@ -1568,7 +1665,7 @@ impl Decoder {
         Ok(())
     }
 
-    fn on_export(&mut self, ch: u32, class: Class, path: &str, v: &Values) -> R<()> {
+    fn on_export(&mut self, ch: u32, class: Class, path: &str, v: &Values, is_open: bool) -> R<()> {
         let actor = self.actor_of(ch);
         match class {
             Class::GameState => {
@@ -1626,7 +1723,7 @@ impl Decoder {
             }
             Class::Container => {
                 if let Some(actor) = actor {
-                    self.on_container(actor, path, v);
+                    self.on_container(actor, path, v, is_open);
                 }
             }
             Class::TreasureChest => {
@@ -1694,45 +1791,126 @@ impl Decoder {
         Ok(())
     }
 
-    fn on_container(&mut self, actor: u32, path: &str, v: &Values) {
+    /// Stable identity for static map containers (odd NetGUIDs), which can receive a fresh NetGUID
+    /// when a POI streams out of network relevancy (~150 m) and back in later in the match.
+    fn static_actor_key(&self, actor: u32) -> Option<String> {
+        if actor == 0 || actor & 1 != 1 {
+            return None;
+        }
+        let leaf = self.guid_paths.get(&actor)?;
+        let mut parts = vec![leaf.as_str()];
+        let mut cur = actor;
+        for _ in 0..16 {
+            let Some(&parent) = self.guid_outer.get(&cur) else {
+                break;
+            };
+            if parent == 0 || parent == cur {
+                break;
+            }
+            if let Some(name) = self.guid_paths.get(&parent) {
+                parts.push(name.as_str());
+            }
+            cur = parent;
+        }
+        parts.reverse();
+        Some(parts.join("/"))
+    }
+
+    fn find_container(&mut self, actor: u32) -> Option<usize> {
+        if let Some(&at) = self.chest.container_of.get(&actor) {
+            return Some(at);
+        }
+        let key = self.static_actor_key(actor)?;
+        let &at = self.chest.container_by_path.get(&key)?;
+        self.chest.container_of.insert(actor, at);
+        Some(at)
+    }
+
+    fn container_index(&mut self, actor: u32, path: &str) -> usize {
+        if let Some(at) = self.find_container(actor) {
+            return at;
+        }
+        let static_key = self.static_actor_key(actor);
+        let cls = path.rsplit(['.', '/']).next().unwrap_or("").to_owned();
+        let container = Container {
+            cls,
+            pawn: None,
+            animations: 0,
+            current: None,
+            searched: false,
+            destroyed: false,
+            last_t: -1.0,
+            episodes: Vec::new(),
+        };
+        self.chest.containers.push((actor, container));
+        let at = self.chest.containers.len() - 1;
+        self.chest.container_of.insert(actor, at);
+        if let Some(key) = static_key {
+            self.chest.container_by_path.insert(key, at);
+        }
+        at
+    }
+
+    fn on_container(&mut self, actor: u32, path: &str, v: &Values, is_open: bool) {
         let searched = v.bool("bAlreadySearched");
         let destroyed = v.bool("bDestroyed");
         let pawn = v.int("SearchingPawn").map(|p| p as u32);
         let animations = v.int("SearchAnimationCount").map(|a| a as u32);
+        let t = self.frame_time;
         if searched.is_none() && destroyed.is_none() && pawn.is_none() && animations.is_none() {
+            // An already-known static container re-opening with default (unsearched) properties has respawned.
+            if is_open && let Some(at) = self.find_container(actor) {
+                let c = &mut self.chest.containers[at].1;
+                c.current = None;
+                c.searched = false;
+                c.destroyed = false;
+                c.pawn = None;
+                c.animations = 0;
+                c.last_t = t;
+            }
             return;
         }
-        let at = *self.chest.container_of.entry(actor).or_insert_with(|| {
-            let cls = path.rsplit(['.', '/']).next().unwrap_or("").to_owned();
-            let container = Container {
-                cls,
-                pawn: None,
-                animations: 0,
-                current: None,
-                searched: false,
-                destroyed: false,
-                episodes: Vec::new(),
-            };
-            self.chest.containers.push((actor, container));
-            self.chest.containers.len() - 1
-        });
-        let t = self.frame_time;
+        let at = self.container_index(actor, path);
         let c = &mut self.chest.containers[at].1;
-        if searched == Some(false) {
-            // The container was reset (some modes respawn chests): a later search is a new opening.
-            c.current = None;
-            c.searched = false;
-            c.pawn = None;
-        }
-        if let Some(animations) = animations {
-            c.animations = animations;
-        }
-        if let Some(pawn) = pawn.filter(|&p| p != 0) {
-            c.pawn = Some(pawn);
-            if let Some(current) = c.current
+        c.last_t = t;
+        if is_open {
+            // Initial channel-open bunches replicate the container's current state against CDO defaults.
+            c.animations = animations.unwrap_or(0);
+            if searched != Some(true) {
+                c.current = None;
+                c.searched = false;
+            }
+            if destroyed != Some(true) {
+                c.destroyed = false;
+            }
+            c.pawn = pawn.filter(|&p| p != 0);
+            if let Some(p) = c.pawn
+                && let Some(current) = c.current
                 && c.episodes[current].pawn.is_none()
             {
-                c.episodes[current].pawn = Some(pawn);
+                c.episodes[current].pawn = Some(p);
+            }
+        } else {
+            if searched == Some(false) {
+                // The container respawned live: keep `c.pawn` because UE delta compression omits
+                // SearchingPawn if the same player searches the respawned container again.
+                c.current = None;
+                c.searched = false;
+            }
+            if let Some(animations) = animations {
+                c.animations = animations;
+            }
+            if let Some(p) = pawn {
+                if p == 0 {
+                    c.pawn = None;
+                } else {
+                    c.pawn = Some(p);
+                    if let Some(current) = c.current
+                        && c.episodes[current].pawn.is_none()
+                    {
+                        c.episodes[current].pawn = Some(p);
+                    }
+                }
             }
         }
         if searched == Some(true) && !c.searched {
@@ -1755,6 +1933,74 @@ impl Decoder {
                 });
                 c.current = Some(c.episodes.len() - 1);
             }
+        }
+    }
+
+    /// Applies a single buffered container property once its NetFieldExport arrives on a later frame.
+    fn on_container_deferred(&mut self, actor: u32, path: &str, v: &Values, is_open: bool, t: f32) {
+        let searched = v.bool("bAlreadySearched");
+        let destroyed = v.bool("bDestroyed");
+        let pawn = v.int("SearchingPawn").map(|p| p as u32);
+        let animations = v.int("SearchAnimationCount").map(|a| a as u32);
+        if searched.is_none() && destroyed.is_none() && pawn.is_none() && animations.is_none() {
+            return;
+        }
+        let at = self.container_index(actor, path);
+        let c = &mut self.chest.containers[at].1;
+        let is_latest = c.last_t < 0.0 || t + 0.01 >= c.last_t;
+        if let Some(animations) = animations
+            && is_latest
+        {
+            c.animations = animations;
+        }
+        if let Some(p) = pawn.filter(|&p| p != 0) {
+            if let Some(ep) = c
+                .episodes
+                .iter_mut()
+                .find(|ep| (ep.t - t).abs() < 0.01 && ep.pawn.is_none())
+            {
+                ep.pawn = Some(p);
+            } else if is_latest
+                && let Some(current) = c.current
+                && c.episodes[current].pawn.is_none()
+            {
+                c.episodes[current].pawn = Some(p);
+            }
+            if is_latest {
+                c.pawn = Some(p);
+            }
+        }
+        if searched == Some(true) {
+            let already_at_t = c.episodes.iter().any(|ep| (ep.t - t).abs() < 0.01);
+            if !already_at_t && (!is_open || !c.searched) && (!c.searched || !is_latest) {
+                let ep_pawn = if is_latest { c.pawn } else { None };
+                c.episodes.push(Episode {
+                    t,
+                    kind: "opened",
+                    pawn: ep_pawn,
+                });
+                if is_latest {
+                    c.searched = true;
+                    c.current = Some(c.episodes.len() - 1);
+                    c.last_t = t;
+                }
+            }
+        }
+        if destroyed == Some(true)
+            && is_latest
+            && !c.destroyed
+            && !c.searched
+            && c.pawn.is_some()
+            && c.animations > 0
+        {
+            c.destroyed = true;
+            c.episodes.push(Episode {
+                t,
+                kind: "broken",
+                pawn: c.pawn,
+            });
+            c.current = Some(c.episodes.len() - 1);
+            c.last_t = t;
         }
     }
 
@@ -2519,6 +2765,7 @@ mod tests {
             by_path: HashMap::new(),
             from_index: HashMap::new(),
             guid_paths: HashMap::new(),
+            guid_outer: HashMap::new(),
             guid_group: HashMap::new(),
             cleaned: HashMap::new(),
             failed: HashSet::new(),
@@ -2584,6 +2831,7 @@ mod tests {
                 current: Some(0),
                 searched: true,
                 destroyed: false,
+                last_t: 50.0,
                 episodes: vec![Episode {
                     t: 50.0,
                     kind: "opened",
@@ -2627,5 +2875,177 @@ mod tests {
         assert_eq!(replay.treasures[1].container.as_deref(), Some("Chest"));
         assert_eq!(replay.treasures[2].by, "team");
         assert_eq!(replay.treasures[2].kind, "unknown");
+    }
+
+    fn blank_decoder() -> Decoder {
+        let ver = Ver {
+            engine: 40,
+            network: 20,
+            flags: 0,
+        };
+        Decoder {
+            info: container::Info {
+                version: 0,
+                length_ms: 0,
+                network_version: 0,
+                changelist: 0,
+                friendly_name: String::new(),
+                live: false,
+                timestamp: 0,
+                compressed: false,
+                encrypted: false,
+                key: Vec::new(),
+                chunks_start: 0,
+            },
+            ver,
+            branch: None,
+            groups: Vec::new(),
+            by_path: HashMap::new(),
+            from_index: HashMap::new(),
+            guid_paths: HashMap::new(),
+            guid_outer: HashMap::new(),
+            guid_group: HashMap::new(),
+            cleaned: HashMap::new(),
+            failed: HashSet::new(),
+            resolved: HashMap::new(),
+            group_class: HashMap::new(),
+            external: HashMap::new(),
+            channels: Vec::new(),
+            in_packet_id: 0,
+            in_reliable: 0,
+            partial: None,
+            packet_temp: [0; 4],
+            cmd: BitReader::owned(Vec::new(), 0, ver),
+            frame_time: 0.0,
+            builder: Builder::default(),
+            chest: Chest::default(),
+            started: std::time::Instant::now(),
+            ticks: 0,
+            timed_out: false,
+        }
+    }
+
+    #[test]
+    fn static_container_re_replication_is_not_double_counted_and_respawns_keep_delta_pawn() {
+        let mut d = blank_decoder();
+        d.chest.recorder = Some(10);
+        d.chest.states.push((
+            10,
+            StateInfo {
+                epic: Some("EPIC_ME".into()),
+                team: Some(1),
+                ..Default::default()
+            },
+        ));
+        d.chest.state_of.insert(10, 0);
+        d.chest.pawn_to_state.insert(100, 10);
+
+        // Static chest (odd NetGUIDs) under same outer level path across three relevancy entries.
+        d.guid_paths.insert(3, "PersistentLevel".into());
+        for guid in [101u32, 201, 301] {
+            d.guid_paths
+                .insert(guid, "Tiered_Chest_Athena_C_UAID_TEST_1".into());
+            d.guid_outer.insert(guid, 3);
+        }
+
+        // 1) Opened live at t=100s on actor 101.
+        d.frame_time = 100.0;
+        let open_vals = Values(vec![
+            ("bAlreadySearched", Val::Bool(true)),
+            ("SearchingPawn", Val::Int(100)),
+            ("SearchAnimationCount", Val::Int(1)),
+        ]);
+        d.on_container(101, "Tiered_Chest_Athena_C", &open_vals, false);
+
+        // 2) Re-replicated already searched on channel open (is_open=true) with a fresh NetGUID 201.
+        d.frame_time = 300.0;
+        d.on_container(201, "Tiered_Chest_Athena_C", &open_vals, true);
+
+        // 3) Live respawn on actor 201 (bAlreadySearched=false; SearchingPawn omitted by UE delta).
+        d.frame_time = 400.0;
+        d.on_container(
+            201,
+            "Tiered_Chest_Athena_C",
+            &Values(vec![
+                ("bAlreadySearched", Val::Bool(false)),
+                ("SearchAnimationCount", Val::Int(0)),
+            ]),
+            false,
+        );
+
+        // 4) Same player opens respawned chest (SearchingPawn omitted by UE delta compression).
+        d.frame_time = 420.0;
+        d.on_container(
+            201,
+            "Tiered_Chest_Athena_C",
+            &Values(vec![
+                ("bAlreadySearched", Val::Bool(true)),
+                ("SearchAnimationCount", Val::Int(1)),
+            ]),
+            false,
+        );
+
+        // 5) Re-replicated again on channel open with fresh NetGUID 301: still not double-counted.
+        d.frame_time = 500.0;
+        d.on_container(301, "Tiered_Chest_Athena_C", &open_vals, true);
+
+        let replay = d.fill("test.replay", Ok(()));
+        assert_eq!(replay.events.len(), 2);
+        assert_eq!(replay.events[0].t, 100.0);
+        assert_eq!(replay.events[0].by, "me");
+        assert_eq!(replay.events[1].t, 420.0);
+        assert_eq!(replay.events[1].by, "me");
+        assert_eq!(replay.events[1].episode, 1);
+    }
+
+    #[test]
+    fn deferred_container_exports_resolve_when_net_field_export_arrives_later() {
+        let mut d = blank_decoder();
+        d.chest.recorder = Some(10);
+        d.chest.states.push((
+            10,
+            StateInfo {
+                epic: Some("EPIC_ME".into()),
+                team: Some(1),
+                ..Default::default()
+            },
+        ));
+        d.chest.state_of.insert(10, 0);
+        d.chest.pawn_to_state.insert(100, 10);
+
+        let g = d.add_group("AlwaysSpawn_RareChest_C".into(), 1, 90);
+        // Simulate late NetFieldExports for handle 77 (bAlreadySearched = true, 1 bit) and
+        // handle 80 (SearchingPawn = 100, packed int: (100 << 1) = 200 = 0xC8 in 8 bits).
+        d.chest.pending_container_props.push(PendingContainerProp {
+            t: 289.86,
+            g,
+            handle: 77,
+            actor: 7415,
+            path: "AlwaysSpawn_RareChest_C".into(),
+            is_open: false,
+            bits: 1,
+            data: vec![1u8],
+        });
+        d.chest.pending_container_props.push(PendingContainerProp {
+            t: 289.86,
+            g,
+            handle: 80,
+            actor: 7415,
+            path: "AlwaysSpawn_RareChest_C".into(),
+            is_open: false,
+            bits: 8,
+            data: vec![(100u8) << 1],
+        });
+
+        d.frame_time = 330.54;
+        d.set_export(Some(g), Some((77, "bAlreadySearched".into())));
+        d.frame_time = 494.79;
+        d.set_export(Some(g), Some((80, "SearchingPawn".into())));
+
+        let replay = d.fill("test.replay", Ok(()));
+        assert_eq!(replay.events.len(), 1);
+        assert_eq!(replay.events[0].t, 289.86);
+        assert_eq!(replay.events[0].by, "me");
+        assert_eq!(replay.events[0].cls, "AlwaysSpawn_RareChest_C");
     }
 }

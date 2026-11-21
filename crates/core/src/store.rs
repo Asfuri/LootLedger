@@ -212,13 +212,18 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    /// Replay files whose match was read before per-player details, stats, or treasures existed.
+    /// Replay files whose match was read before per-player details, stats, treasures, or the latest parser fixes existed.
     pub fn files_without_players(&self) -> Result<std::collections::HashSet<String>> {
         let mut stmt = self.db.prepare(
             "SELECT r.file FROM replay_files r JOIN match_meta m ON m.match_id=r.match_id
-             WHERE r.status='imported' AND (json_extract(m.meta,'$.players') IS NULL OR json_extract(m.meta,'$.stats') IS NULL OR json_extract(m.meta,'$.treasures') IS NULL)",
+             WHERE r.status='imported' AND (
+                 json_extract(m.meta,'$.players') IS NULL
+                 OR json_extract(m.meta,'$.stats') IS NULL
+                 OR json_extract(m.meta,'$.treasures') IS NULL
+                 OR coalesce(json_extract(m.meta,'$.parser_v'), 0) < ?1
+             )",
         )?;
-        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        let rows = stmt.query_map([crate::model::PARSER_VERSION], |r| r.get::<_, String>(0))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
@@ -418,7 +423,10 @@ impl Store {
                 params![id, iso(start), iso(end), replay.length_seconds])?;
             tx.execute("INSERT INTO match_meta(match_id,key,meta) VALUES(?1,?2,?3) ON CONFLICT(match_id) DO UPDATE SET meta=excluded.meta", params![id, key, meta.to_string()])?;
             let mut added = 0;
+            let mut keep_ids = std::collections::HashSet::with_capacity(mine.len());
             for (event, kind) in mine {
+                let eid = replay.event_id(event);
+                keep_ids.insert(eid.clone());
                 let created = start
                     .checked_add_signed(Duration::microseconds(
                         (event.t * 1_000_000.0).round_ties_even() as i64,
@@ -430,11 +438,32 @@ impl Store {
                     "Broken open (not searched)"
                 };
                 added += tx.execute("INSERT INTO events VALUES(?1,?2,?3,?4,'confirmed',?5,1,?6,1.0,?7,NULL) ON CONFLICT(id) DO NOTHING", params![
-                    replay.event_id(event), id, iso(created), event.t, kind, if event.kind == "opened" {"replay"} else {"replay-broken"},
+                    eid, id, iso(created), event.t, kind, if event.kind == "opened" {"replay"} else {"replay-broken"},
                     format!("{description} · {} · {} at {:.1}s", event.cls, meta["file"].as_str().unwrap_or(""), event.t)])?;
             }
-            if added > 0 {
-                tx.execute("INSERT INTO audit(created,event_id,action,detail) VALUES(?1,NULL,'replay imported',?2)", params![stamp, json!({"match": id, "file": file, "added": added}).to_string()])?;
+            let mut removed = 0;
+            if replay.ok && !replay.live {
+                let existing: Vec<String> = {
+                    let mut stmt = tx.prepare(
+                        "SELECT id FROM events WHERE match_id=?1 AND source IN ('replay','replay-broken')",
+                    )?;
+                    stmt.query_map([id], |r| r.get::<_, String>(0))?
+                        .collect::<rusqlite::Result<_>>()?
+                };
+                for old_id in existing {
+                    if !keep_ids.contains(&old_id) {
+                        removed += tx.execute("DELETE FROM events WHERE id=?1", [&old_id])?;
+                    }
+                }
+            }
+            if added > 0 || removed > 0 {
+                tx.execute(
+                    "INSERT INTO audit(created,event_id,action,detail) VALUES(?1,NULL,'replay imported',?2)",
+                    params![
+                        stamp,
+                        json!({"match": id, "file": file, "added": added, "removed": removed}).to_string()
+                    ],
+                )?;
             }
         }
         tx.execute("INSERT INTO replay_files VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(file) DO UPDATE SET size=excluded.size,mtime=excluded.mtime,status=excluded.status,match_id=excluded.match_id,scanned=excluded.scanned",
@@ -1036,6 +1065,75 @@ mod tests {
             db.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
                 .unwrap(),
             99
+        );
+    }
+
+    #[test]
+    fn reimporting_completed_replay_prunes_stale_duplicates_and_keeps_edits_and_manual_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = Store::open(dir.path().join("ledger.sqlite")).unwrap();
+        let mut clean = fixture();
+        clean.stats = Some(json!({}));
+        let mut with_dup = clean.clone();
+        let mut dup = with_dup
+            .events
+            .iter()
+            .find(|e| e.by == "me")
+            .unwrap()
+            .clone();
+        dup.actor = 999_999;
+        dup.t += 120.0;
+        with_dup.events.push(dup);
+        let id = store
+            .import_replay(&with_dup, "match.replay", 10, 10.0)
+            .unwrap()
+            .unwrap();
+        let before = store.totals(true).unwrap().chests;
+        // Mark an existing valid chest as undone and add a manual event to the same match.
+        let valid_id = with_dup.event_id(with_dup.events.iter().find(|e| e.by == "me").unwrap());
+        store.edit(&valid_id, Some("undone"), None, None).unwrap();
+        store
+            .db
+            .execute(
+                "INSERT INTO events VALUES('manual-1',?1,'2026-01-01T00:00:00+00:00',1.0,'confirmed','Chest',2,'manual',1.0,'Manual',NULL)",
+                [&id],
+            )
+            .unwrap();
+        // Force an older parser_v to verify automatic rescan detection.
+        store
+            .db
+            .execute(
+                "UPDATE match_meta SET meta=json_remove(meta,'$.parser_v') WHERE match_id=?1",
+                [&id],
+            )
+            .unwrap();
+        assert!(
+            store
+                .files_without_players()
+                .unwrap()
+                .contains("match.replay")
+        );
+
+        // Re-import the cleaned completed replay (without the bogus duplicate actor 999_999).
+        store
+            .import_replay(&clean, "match.replay", 10, 10.0)
+            .unwrap();
+        assert!(
+            !store
+                .files_without_players()
+                .unwrap()
+                .contains("match.replay")
+        );
+        // Stale duplicate removed (-1), valid undone stays undone (-1), manual (+2) preserved -> net before.
+        assert_eq!(store.totals(true).unwrap().chests, before);
+        assert_eq!(
+            store
+                .db
+                .query_row("SELECT status FROM events WHERE id=?1", [&valid_id], |r| {
+                    r.get::<_, String>(0)
+                })
+                .unwrap(),
+            "undone"
         );
     }
 }
