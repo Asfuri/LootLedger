@@ -1,4 +1,4 @@
-// Matches, Openings and Teammates: filters, a virtualized sortable table, and a detail panel each.
+// Matches, Sessions, Openings and Teammates: filters, a virtualized sortable table, and a detail panel each.
 import { ListView } from "std-widgets.slint";
 import { Tokens, Tip } from "tokens.slint";
 import { Icons } from "icons.slint";
@@ -31,6 +31,7 @@ export global Pages {
     in property <string> detail-sub;
     in property <string> detail-stats;
     in property <string> detail-treasures;
+    in property <string> detail-rewards;
     in property <bool> detail-favorite;
     in property <string> detail-tags;
     in property <string> detail-note;
@@ -74,15 +75,36 @@ export global Pages {
     in property <string> profile-area;
     in property <int> chart-style;
     in property <[Row]> profile-matches;
+    // Sessions
+    in property <[Row]> sessions;
+    in-out property <int> session-range: 3;
+    in property <int> session-sort: 0;
+    in property <bool> session-descending: true;
+    in property <string> selected-session;
+    in property <string> session-count;
+    in property <bool> session-empty;
+    in property <[string]> session-records: ["–", "", "–", "", "–", ""];
+    in property <string> session-title;
+    in property <string> session-sub;
+    in property <string> session-stats;
+    in property <string> session-rewards;
+    in property <string> session-team;
+    in property <[BarRow]> session-types;
+    in property <[ChartPoint]> session-points;
+    in property <[string]> session-axis;
+    in property <string> session-line;
+    in property <string> session-area;
+    in property <[Row]> session-matches;
     // Correct-entry dialog
     in-out property <bool> correcting;
     in-out property <string> correct-type;
     in-out property <int> correct-count: 1;
     in property <string> correct-reason;
 
-    callback changed(string);          // a filter changed: "matches", "entries" or "team"
+    callback changed(string);          // a filter changed: "matches", "entries", "team" or "sessions"
     callback sort(string, int);        // table, column
     callback select(string, string);   // table, row id
+    callback open-match(string);       // show this match on the Matches page
     callback note(string, string);     // field ("tags", "note", "favorite"), value
     callback action(string);           // undo, export, add, remove, restore, correct, apply-correct, export-csv, export-json
 }
@@ -253,6 +275,7 @@ export component MatchesPage inherits VerticalLayout {
                     Text { text: Pages.detail-title; font-size: Tokens.title; font-weight: 600; color: Tokens.on-surface; }
                     Text { text: Pages.detail-sub; font-size: Tokens.body; color: Tokens.on-surface-variant; wrap: word-wrap; }
                     if Pages.detail-stats != "": Text { text: Pages.detail-stats; font-size: Tokens.body; color: Tokens.on-surface; wrap: word-wrap; }
+                    if Pages.detail-rewards != "": Text { text: Pages.detail-rewards; font-size: Tokens.body; color: Tokens.primary; wrap: word-wrap; }
                     if Pages.detail-treasures != "": Text { text: Pages.detail-treasures; font-size: Tokens.body; color: Tokens.primary; wrap: word-wrap; }
                 }
                 IconButton {
@@ -435,6 +458,98 @@ export component TeammatesPage inherits VerticalLayout {
                         left-columns: 2;
                         rows: Pages.profile-matches;
                         background: Tokens.container;
+                    }
+                }
+            }
+        }
+    }
+}
+
+export component SessionsPage inherits VerticalLayout {
+    spacing: Tokens.m;
+    FilterBar {
+        Select { options: Pages.ranges; current: Pages.session-range; label: I18n.label-date-range; changed(i) => { Pages.session-range = i; Pages.changed("sessions"); } }
+    }
+    Text { text: Pages.session-count; font-size: Tokens.body; color: Tokens.on-surface-variant; }
+    if Pages.session-empty: SectionText { text: I18n.sessions-empty; }
+    Rectangle {
+        border-radius: Tokens.r-lg;
+        background: Tokens.container-low;
+        HorizontalLayout {
+            padding: Tokens.m;
+            spacing: Tokens.m;
+            for title[i] in I18n.session-records-titles: VerticalLayout {
+                horizontal-stretch: 1;
+                spacing: Tokens.xxs;
+                Text { text: title; font-size: Tokens.body; color: Tokens.on-surface-variant; }
+                Text { text: Pages.session-records[i * 2]; font-size: Tokens.title; font-weight: 600; color: Tokens.on-surface; wrap: word-wrap; }
+                Text { text: Pages.session-records[i * 2 + 1]; font-size: Tokens.body; color: Tokens.on-surface-variant; wrap: word-wrap; }
+            }
+        }
+    }
+    DataTable {
+        min-height: 400px;
+        vertical-stretch: 1;
+        label: I18n.label-sessions;
+        headers: I18n.session-headers;
+        widths: [1.9, 0.8, 0.8, 0.8, 0.9, 0.8, 0.9, 0.9];
+        rows: Pages.sessions;
+        sort-column: Pages.session-sort;
+        descending: Pages.session-descending;
+        selected: Pages.selected-session;
+        sort(c) => { Pages.sort("sessions", c); }
+        select(id) => { Pages.select("sessions", id); }
+    }
+    if Pages.selected-session != "": Rectangle {
+        border-radius: Tokens.r-lg;
+        background: Tokens.container-low;
+        VerticalLayout {
+            padding: Tokens.l;
+            spacing: Tokens.s;
+            HorizontalLayout {
+                spacing: Tokens.s;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    Text { text: Pages.session-title; font-size: Tokens.title; font-weight: 600; color: Tokens.on-surface; wrap: word-wrap; }
+                    Text { text: Pages.session-sub; font-size: Tokens.body; color: Tokens.on-surface-variant; wrap: word-wrap; }
+                }
+                IconButton { icon: Icons.close; tip: I18n.tip-close-session; clicked => { Pages.select("sessions", ""); } }
+            }
+            SectionText { text: Pages.session-stats; tone: 1; }
+            if Pages.session-rewards != "": SectionText { text: Pages.session-rewards; tone: 2; }
+            if Pages.session-team != "": SectionText { text: Pages.session-team; }
+            HorizontalLayout {
+                spacing: Tokens.xl;
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    spacing: Tokens.s;
+                    Text { text: I18n.label-chest-types; font-size: Tokens.label; font-weight: 600; color: Tokens.on-surface-variant; }
+                    BarRows { rows: Pages.session-types; }
+                    Rectangle { vertical-stretch: 1; }
+                }
+                VerticalLayout {
+                    horizontal-stretch: 2;
+                    spacing: Tokens.s;
+                    Text { text: I18n.label-chests-per-match; font-size: Tokens.label; font-weight: 600; color: Tokens.on-surface-variant; }
+                    SeriesChart {
+                        min-height: 200px;
+                        points: Pages.session-points;
+                        axis: Pages.session-axis;
+                        line: Pages.session-line;
+                        area: Pages.session-area;
+                        style: Pages.chart-style;
+                        empty: Pages.session-points.length == 0 ? I18n.session-chart-empty : "";
+                    }
+                    Text { text: I18n.session-matches-title; font-size: Tokens.label; font-weight: 600; color: Tokens.on-surface-variant; }
+                    DataTable {
+                        height: min(480px, (Pages.session-matches.length + 1) * Tokens.button-height + 2 * Tokens.s + Tokens.m);
+                        label: I18n.session-matches-label;
+                        headers: I18n.session-match-headers;
+                        widths: [1.6, 1.8, 1, 0.8, 0.8];
+                        left-columns: 2;
+                        rows: Pages.session-matches;
+                        background: Tokens.container;
+                        activate(id) => { Pages.open-match(id); }
                     }
                 }
             }

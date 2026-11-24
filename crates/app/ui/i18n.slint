@@ -19,11 +19,13 @@ export global I18n {
     in property <string> win-close: "Close";
     in property <string> nav-overview: "Overview";
     in property <string> nav-matches: "Matches";
+    in property <string> nav-sessions: "Sessions";
     in property <string> nav-openings: "Openings";
     in property <string> nav-statistics: "Statistics";
     in property <string> nav-teammates: "Teammates";
     in property <string> nav-settings: "Settings";
     in property <string> sub-matches: "Matches read from your replays. Select one to see its breakdown and timeline.";
+    in property <string> sub-sessions: "Every play session: a run of matches less than 30 minutes apart. Select one to see its matches.";
     in property <string> sub-openings: "Every chest you opened, newest first. Corrections are recorded and never silently lost.";
     in property <string> sub-teammates: "Everyone who played with you, merged across matches. Pick someone to see their profile.";
     in property <string> sub-settings: "Changes apply immediately. Your replays and ledger never leave this PC.";
@@ -263,9 +265,21 @@ export global I18n {
         { id: "Restore backup", label: "Restore backup" },
         { id: "Open data folder", label: "Open data folder" },
     ];
+    in property <string> sessions-empty: "No sessions yet. A session is a run of matches less than 30 minutes apart. Play a few matches and it appears here.";
+    in property <[string]> session-records-titles: ["Average session", "Longest session", "Most chests in a session"];
+    in property <string> label-sessions: "Sessions";
+    in property <[string]> session-headers: ["Started", "Length", "Matches", "Chests", "Per match", "Per hour", "Best match", "Best place"];
+    in property <string> tip-close-session: "Close session details";
+    in property <string> session-chart-empty: "Matches will chart here";
+    in property <string> session-matches-title: "Matches in this session (double-click one to open it)";
+    in property <string> session-matches-label: "Matches in this session";
+    in property <[string]> session-match-headers: ["When", "Mode", "Place", "Chests", "Length"];
     in property <[MenuOption]> data-col3: [
         { id: "Export settings", label: "Export settings" },
         { id: "Import settings", label: "Import settings" },
+    ];
+    in property <[MenuOption]> data-col4: [
+        { id: "Export rewards", label: "Export rewards" },
     ];
     in property <string> set-check-updates: "Check for updates";
     in property <string> set-clear-data: "Clear all data…";

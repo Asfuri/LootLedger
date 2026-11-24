@@ -291,7 +291,7 @@ fn snapshots(ui: &AppWindow, dir: PathBuf) -> Timer {
     timer.start(TimerMode::Repeated, Duration::from_millis(900), move || {
         let Some(ui) = window() else { return };
         let n = step.get();
-        let shots: Vec<(i32, &str)> = [0, 3, 5, 1, 2, 4]
+        let shots: Vec<(i32, &str)> = [0, 4, 6, 1, 3, 5, 2]
             .iter()
             .flat_map(|p| [(*p, "dark"), (*p, "light")])
             .collect();
@@ -347,6 +347,17 @@ fn snapshots(ui: &AppWindow, dir: PathBuf) -> Timer {
             with_app(|a| a.pages.ranked.iter().find(|p| !p.me).map(|p| p.key.clone())).flatten()
         {
             pages.invoke_select("team".into(), key.into());
+        }
+        if let Some(id) = with_app(|a| {
+            a.snap.as_ref().and_then(|s| {
+                lootledger_core::stats::latest_session(&s.match_rows)
+                    .first()
+                    .map(|r| r.id.clone())
+            })
+        })
+        .flatten()
+        {
+            pages.invoke_select("sessions".into(), id.into());
         }
         step.set(n + 1);
     });
@@ -1036,6 +1047,77 @@ fn scan() {
         };
         let _ = slint::invoke_from_event_loop(move || scan_finished(result));
     });
+}
+
+/// Every recorded prize as CSV or JSON rows: when, match, type, tier, who got it and where from.
+fn export_rewards() {
+    let rows = with_app(|app| {
+        let snap = app.snap.as_ref()?;
+        let mut out = Vec::new();
+        for row in snap.match_rows.iter().rev() {
+            for r in &row.rewards {
+                let who = match r.by.as_str() {
+                    "me" => "You",
+                    "team" => "Teammate",
+                    "other" => "Other player",
+                    _ => "Unknown",
+                };
+                let at = row.when + chrono::Duration::milliseconds((r.t * 1000.0).round() as i64);
+                out.push(
+                    serde_json::json!({
+                        "when": at.format("%Y-%m-%d %H:%M:%S").to_string(),
+                        "match_id": row.id,
+                        "mode": row.mode,
+                        "reward": if r.recognized() { r.category.clone() } else { String::new() },
+                        "tier": r.tier,
+                        "prize_id": r.prize,
+                        "received_by": who,
+                        "player": r.player.clone().unwrap_or_default(),
+                        "chest": r.chest.clone().unwrap_or_default(),
+                        "replay_time": prefs::elapsed(r.t),
+                    })
+                    .as_object()
+                    .cloned()?,
+                );
+            }
+        }
+        Some(out)
+    })
+    .flatten()
+    .unwrap_or_default();
+    if rows.is_empty() {
+        let lang = current_lang();
+        snack(lang.t(
+            "No rewards recorded yet",
+            "Nenhuma recompensa registrada ainda",
+        ));
+        return;
+    }
+    let fields = [
+        "when",
+        "match_id",
+        "mode",
+        "reward",
+        "tier",
+        "prize_id",
+        "received_by",
+        "player",
+        "chest",
+        "replay_time",
+    ];
+    if let Some(path) = rfd::FileDialog::new()
+        .set_file_name("lootledger-rewards.csv")
+        .add_filter("CSV", &["csv"])
+        .add_filter("JSON", &["json"])
+        .save_file()
+        && report(lootledger_core::store::export_rows(&path, &rows, &fields)).is_some()
+    {
+        let lang = current_lang();
+        snack(match lang {
+            i18n::Lang::En => format!("Exported {} rewards", rows.len()),
+            i18n::Lang::PtBr => format!("{} recompensas exportadas", rows.len()),
+        });
+    }
 }
 
 fn scan_finished(result: live::ScanResult) {
@@ -1935,7 +2017,7 @@ fn wire(ui: &AppWindow) {
         let stale =
             with_app(|a| a.theme_dirty || a.cards_key.is_none() || a.cards_key != stats_key(a))
                 .unwrap_or(true);
-        if (page == 0 || page == 3) && stale {
+        if (page == 0 || page == 4) && stale {
             refresh(false);
         }
     });
@@ -1991,7 +2073,7 @@ fn wire(ui: &AppWindow) {
         save_layout();
         fill_settings();
     });
-    let grid_of = |ui: &AppWindow| if ui.get_page() == 3 { 1 } else { 0 };
+    let grid_of = |ui: &AppWindow| if ui.get_page() == 4 { 1 } else { 0 };
     {
         let weak = ui.as_weak();
         dash.on_trend_range(move |_, i| {
@@ -2069,6 +2151,7 @@ fn wire(ui: &AppWindow) {
                     app.config.count_broken(),
                 ),
                 "entries" => pages::entries(&ui, &mut app.pages, snap, &app.prefs, &app.theme),
+                "sessions" => pages::sessions(&ui, &mut app.pages, snap, &app.prefs, &app.theme),
                 _ => pages::team(&ui, &mut app.pages, snap, &app.prefs, &app.theme),
             }
         });
@@ -2079,10 +2162,15 @@ fn wire(ui: &AppWindow) {
             let sort = match table.as_str() {
                 "matches" => &mut app.pages.match_sort,
                 "entries" => &mut app.pages.entry_sort,
+                "sessions" => &mut app.pages.session_sort,
                 _ => &mut app.pages.team_sort,
             };
             // A new column starts descending for numbers and ascending for names.
-            let text_column = (table == "team" && column == 0) || (table != "team" && column == 1);
+            let text_column = match table.as_str() {
+                "team" => column == 0,
+                "sessions" => false,
+                _ => column == 1,
+            };
             *sort = if sort.0 == column {
                 (column, !sort.1)
             } else {
@@ -2097,11 +2185,17 @@ fn wire(ui: &AppWindow) {
         with_app(|app| match table.as_str() {
             "matches" => app.pages.selected_match = id.to_string(),
             "entries" => app.pages.selected_entry = id.to_string(),
+            "sessions" => app.pages.selected_session = id.to_string(),
             _ => app.pages.selected_person = id.to_string(),
         });
         if let Some(ui) = window() {
             ui.global::<Pages>().invoke_changed(table);
         }
+    });
+    pg.on_open_match(|id| {
+        let Some(ui) = window() else { return };
+        go_to(&ui, 1);
+        ui.global::<Pages>().invoke_select("matches".into(), id);
     });
     pg.on_note(|field, value| {
         let result = with_app(|app| {
@@ -2197,6 +2291,7 @@ fn settings_action(action: &str) {
             }
             scan();
         }
+        "Export rewards" => export_rewards(),
         "Export ledger" => {
             if let Some(path) = rfd::FileDialog::new()
                 .set_file_name("lootledger-export.json")
@@ -2377,13 +2472,13 @@ fn confirm(title: &str, text: &str) -> bool {
 fn whats_new(lang: i18n::Lang) -> [&'static str; 3] {
     match lang {
         i18n::Lang::En => [
-            "The Session overview card is simpler and easier to read: your chests, four numbers (matches, time, chests per match and per hour), your best match and a small chart.",
-            "A session is a run of matches less than 30 minutes apart. When you are not playing, the card shows your last session.",
+            "New Sessions tab (Ctrl+3): every play session with its length, matches, chests, pace, chart and teammates.",
+            "New Rewards counter from treasure rolls: Overview tile, Rewards by type on Statistics, match/session details, and Export rewards in Settings.",
             "Your data still never leaves this PC; only the version check and the download go over the internet.",
         ],
         i18n::Lang::PtBr => [
-            "O cartão Resumo da sessão está mais simples e fácil de ler: seus baús, quatro números (partidas, tempo, baús por partida e por hora), sua melhor partida e um gráfico compacto.",
-            "Uma sessão é uma sequência de partidas com menos de 30 minutos de intervalo. Quando não estiver jogando, o cartão mostra sua última sessão.",
+            "Nova aba Sessões (Ctrl+3): todas as suas sessões com duração, partidas, baús, ritmo, gráfico e colegas.",
+            "Novo contador de Recompensas das rolagens de tesouro: cartão na Visão geral, Recompensas por tipo em Estatísticas, detalhes de partida/sessão e Exportar recompensas em Configurações.",
             "Seus dados continuam sem sair deste PC; apenas a verificação de versão e o download usam a internet.",
         ],
     }
@@ -2404,7 +2499,7 @@ enum Command {
 
 fn commands(app: &App) -> Vec<(String, Command)> {
     let l = i18n::from_code(&app.prefs.language);
-    let mut items: Vec<(String, Command)> = (0..6)
+    let mut items: Vec<(String, Command)> = (0..7)
         .map(|i| {
             (
                 format!("{} {}", l.t("Go to", "Ir para"), l.page_name(i)),
@@ -2608,7 +2703,7 @@ fn run_command(index: i32) {
                 .invoke_select("matches".into(), id.into());
         }
         Some(Command::Teammate(key)) => {
-            go_to(&ui, 4);
+            go_to(&ui, 5);
             ui.global::<Pages>()
                 .invoke_select("team".into(), key.into());
         }
@@ -2654,7 +2749,7 @@ fn show_shortcuts() {
     };
     let mut rows = vec![
         vec![
-            ("Ctrl+1 … Ctrl+6".to_owned(), 1),
+            ("Ctrl+1 … Ctrl+7".to_owned(), 1),
             (l.t("Go to a page", "Ir para uma página").to_owned(), 0),
         ],
         vec![

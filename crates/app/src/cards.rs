@@ -76,6 +76,8 @@ pub const TITLES: &[(&str, &str, &str)] = &[
     ("stats", "Match stats", "bar_chart"),
     ("treasures", "Treasure rewards", "celebration"),
     ("seen_prizes", "Seen prizes nearby", "visibility"),
+    ("rewards", "Rewards", "military_tech"),
+    ("reward_types", "Rewards by type", "military_tech"),
 ];
 pub const STATS_ORDER: &[&str] = &[
     "health",
@@ -84,6 +86,7 @@ pub const STATS_ORDER: &[&str] = &[
     "treasures",
     "seen_prizes",
     "types",
+    "reward_types",
     "modes",
     "heat",
     "records",
@@ -106,6 +109,7 @@ pub const STATS_ORDER: &[&str] = &[
     "stat:matches",
     "stat:session",
     "stat:token",
+    "rewards",
 ];
 
 pub fn title_of(id: &str, lang: Lang) -> (&'static str, &'static str) {
@@ -732,6 +736,21 @@ fn live_card(span: i32, ctx: &Context) -> CardData {
                     lang.t("chests per hour", "baús por hora"),
                 ));
             }
+            let won = rows
+                .iter()
+                .flat_map(|r| &r.rewards)
+                .filter(|r| r.by == "me" && r.recognized())
+                .count() as i64;
+            if won > 0 {
+                facts.push(fact(
+                    p.int(won),
+                    if won == 1 {
+                        lang.t("reward", "recompensa")
+                    } else {
+                        lang.t("rewards", "recompensas")
+                    },
+                ));
+            }
         }
         card.facts = model(facts);
         if rows.len() > 1 {
@@ -1251,6 +1270,141 @@ fn modes_card(span: i32, ctx: &Context) -> CardData {
             })
             .collect(),
     );
+    card
+}
+
+/// The reward types in a counter with their counts, most first (ties in the order the game lists them).
+fn reward_counts(counts: &stats::Counter) -> Vec<(&'static str, i64)> {
+    let mut found: Vec<(&'static str, i64)> = lootledger_core::model::reward_types()
+        .map(|name| (name, counts.get(name)))
+        .filter(|(_, n)| *n > 0)
+        .collect();
+    found.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
+    found
+}
+
+/// The Overview tile: the prizes your replays recorded from treasure rolls.
+fn rewards_card(span: i32, ctx: &Context) -> CardData {
+    let mut card = blank("rewards", "stat", span, ctx);
+    let lang = lang_of(ctx);
+    let (snap, p) = (ctx.snap, ctx.prefs);
+    card.value = s(p.int(snap.rewards.total()));
+    // Only the top three types here; the Statistics page lists them all.
+    let found = reward_counts(&snap.rewards);
+    let mut parts: Vec<String> = found
+        .iter()
+        .take(3)
+        .map(|(name, n)| format!("{} {}", lang.reward_category(name), p.int(*n)))
+        .collect();
+    if found.len() > 3 {
+        parts.push(match lang {
+            Lang::En => format!("+{} more", found.len() - 3),
+            Lang::PtBr => format!("+{} mais", found.len() - 3),
+        });
+    }
+    card.detail = s(if parts.is_empty() {
+        lang.t("None recorded yet", "Nenhuma registrada ainda")
+            .to_owned()
+    } else {
+        parts.join(" · ")
+    });
+    let mut extra = Vec::new();
+    if snap.team_rewards.total() > 0 {
+        extra.push(format!(
+            "{} {}",
+            lang.t("Teammates got", "Equipe ganhou"),
+            p.int(snap.team_rewards.total())
+        ));
+    }
+    if snap.unrecognized_rewards > 0 {
+        extra.push(format!(
+            "{} {}",
+            p.int(snap.unrecognized_rewards),
+            lang.t("not recognized", "não reconhecidas")
+        ));
+    }
+    card.delta = s(extra.join(" · "));
+    let today = snap.today_date;
+    let days: Vec<(chrono::NaiveDate, f64)> = (0..14)
+        .map(|i| {
+            let day = today - Duration::days(13 - i);
+            (day, snap.reward_days.get(&day).copied().unwrap_or(0) as f64)
+        })
+        .collect();
+    let values: Vec<f64> = days.iter().map(|d| d.1).collect();
+    let (line, area) = spark(&values);
+    card.spark_line = s(line);
+    card.spark_area = s(area);
+    card.spark_tips = model(
+        days.iter()
+            .map(|(day, n)| s(format!("{} · {}", p.short_date(*day), p.number(*n, 0))))
+            .collect::<Vec<_>>(),
+    );
+    card
+}
+
+/// The Statistics card: every reward type with how many you and your teammates got.
+fn reward_types_card(span: i32, ctx: &Context) -> CardData {
+    let mut card = blank("reward_types", "bars", span, ctx);
+    let lang = lang_of(ctx);
+    let (snap, p) = (ctx.snap, ctx.prefs);
+    let rows: Vec<(String, i64, String)> = lootledger_core::model::reward_types()
+        .filter_map(|name| {
+            let (mine, team) = (snap.rewards.get(name), snap.team_rewards.get(name));
+            (mine + team > 0).then(|| {
+                (
+                    lang.reward_category(name),
+                    mine + team,
+                    format!(
+                        "{} {} · {} {}",
+                        lang.t("You", "Você"),
+                        p.int(mine),
+                        lang.t("Teammates", "Equipe"),
+                        p.int(team)
+                    ),
+                )
+            })
+        })
+        .collect();
+    if rows.is_empty() {
+        card.lines = model(vec![cell(
+            lang.t(
+                "No rewards recorded yet. They come from treasure rolls during the Treasure Hunt event.",
+                "Nenhuma recompensa registrada ainda. Elas vêm das rolagens de tesouro durante o evento Caça ao Tesouro.",
+            ),
+            0,
+        )]);
+    }
+    card.bars = bars(rows);
+    let mut note = String::from(lang.t(
+        "*Only prizes your replays recorded. A prize won far from you usually isn't, and Gizmos may not be saved at all, so these are minimums.",
+        "*Apenas prêmios registrados nos seus replays. Prêmios ganhos longe de você normalmente não aparecem, e Gizmos podem não ser salvos — portanto são mínimos.",
+    ));
+    if snap.unrecognized_rewards > 0 {
+        note += &match lang {
+            Lang::En => format!(
+                " {} prizes were not recognized and are left out of the types.",
+                p.int(snap.unrecognized_rewards)
+            ),
+            Lang::PtBr => format!(
+                " {} prêmios não foram reconhecidos e ficaram fora dos tipos.",
+                p.int(snap.unrecognized_rewards)
+            ),
+        };
+    }
+    if snap.no_reward_data > 0 {
+        note += &match lang {
+            Lang::En => format!(
+                " {} older matches were read before rewards were recorded.",
+                p.int(snap.no_reward_data)
+            ),
+            Lang::PtBr => format!(
+                " {} partidas antigas foram lidas antes do registro de recompensas.",
+                p.int(snap.no_reward_data)
+            ),
+        };
+    }
+    card.note = s(note);
     card
 }
 
@@ -1940,6 +2094,8 @@ pub fn build(id: &str, span: i32, ctx: &Context) -> CardData {
         "trophies" => trophies_card(span, ctx),
         "compare" => compare_card(span, ctx),
         "stats" => stats_card(span, ctx),
+        "rewards" => rewards_card(span, ctx),
+        "reward_types" => reward_types_card(span, ctx),
         _ => blank(id, "table", span, ctx),
     }
 }

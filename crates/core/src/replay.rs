@@ -12,10 +12,10 @@ use crate::bits::{
     BitReader, ByteReader, END_ARRAY, END_BUNCH, END_CONTENT, END_FIELD, Exc, R, Ver, exc, hex,
 };
 use crate::container;
-use crate::model::{Opening, Player, Replay, TreasureDrop};
+use crate::model::{Opening, Player, Replay, Reward, TreasureDrop};
 use crate::tables::{GAME_STATE, PLAYER_PAWN, PLAYER_STATE};
 use crate::treasure;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 const MAX_CHANNELS: usize = 32767;
 
@@ -47,6 +47,8 @@ pub enum Kind {
     Opaque,
     /// A dynamic array of this element kind (None: an element type the old reader ignores).
     Array(Option<&'static Kind>),
+    /// A dynamic array of strings, keeping the elements the update carried.
+    StrArray,
 }
 
 #[derive(Debug, Clone)]
@@ -54,6 +56,8 @@ enum Val {
     Bool(bool),
     Int(i64),
     Str(String),
+    /// An array update: the declared length and the (index, text) elements it carried.
+    Strs(u32, Vec<(u32, String)>),
     Other,
 }
 
@@ -66,6 +70,8 @@ enum Class {
     Container,
     TreasureChest,
     TreasureWeapon,
+    /// The animated chest that shows a treasure prize (Treasure Hunt event).
+    Reward,
     /// Registered by the old reader at ParseMode.Normal (or skipped properties whose ClassNetCache is read).
     Other,
 }
@@ -82,12 +88,26 @@ const TREASURE_CHEST: &[(&str, Kind)] = &[
     ("SourceContainer", Kind::Guid),
     ("OpeningPawn", Kind::Guid),
     ("bSuccess", Kind::Bool),
-    ("PrizeTemplateId", Kind::RawAscii),
+    ("PrizeTemplateId", Kind::StrArray),
 ];
 const TREASURE_WEAPON: &[(&str, Kind)] = &[
     ("Instigator", Kind::Guid),
     ("Owner", Kind::Guid),
     ("WeaponData", Kind::Guid),
+];
+
+const REWARD: &[(&str, Kind)] = &[
+    ("bSuccess", Kind::Bool),
+    ("Instigator", Kind::Guid),
+    ("OpeningPawn", Kind::Guid),
+    ("SourceContainer", Kind::Guid),
+    ("PrizeTemplateId", Kind::StrArray),
+];
+/// The three animated chest actors (normal, rare and sprite chests) that show a roll's prize.
+const REWARD_ACTORS: [&str; 3] = [
+    "/DelilahTreasureHuntGameplay/Gameplay/Actors/BGA_DelilahTreasureHuntAnimatedChest.BGA_DelilahTreasureHuntAnimatedChest_C",
+    "/DelilahTreasureHuntGameplay/Gameplay/Actors/BGA_DelilahTreasureHuntAnimatedChest_Rare.BGA_DelilahTreasureHuntAnimatedChest_Rare_C",
+    "/DelilahTreasureHuntGameplay/Gameplay/Actors/BGA_DelilahTreasureHuntAnimatedChest_Sprite.BGA_DelilahTreasureHuntAnimatedChest_Sprite_C",
 ];
 
 impl Class {
@@ -100,6 +120,7 @@ impl Class {
             Class::Container => Some(CONTAINER),
             Class::TreasureChest => Some(TREASURE_CHEST),
             Class::TreasureWeapon => Some(TREASURE_WEAPON),
+            Class::Reward => Some(REWARD),
             Class::Other => None,
         }
     }
@@ -120,6 +141,7 @@ fn registered(path: &str) -> Option<Class> {
         | "/Game/Spectating/BP_ReplayPC_Athena.BP_ReplayPC_Athena_C"
         | "/Game/Athena/SafeZone/SafeZoneIndicator.SafeZoneIndicator_C"
         | "CurrentPlaylistInfo" => Class::Other,
+        _ if REWARD_ACTORS.contains(&path) => Class::Reward,
         _ => return None,
     })
 }
@@ -235,6 +257,16 @@ struct Episode {
     pawn: Option<u32>,
 }
 
+/// One treasure roll's animated chest: the prize arrives in updates, the roll counts once it succeeded.
+struct RewardActor {
+    cls: String,
+    success: bool,
+    pawn: Option<u32>,
+    source: Option<u32>,
+    t: Option<f32>,
+    prizes: BTreeMap<u32, String>,
+}
+
 struct Container {
     cls: String,
     pawn: Option<u32>,
@@ -296,6 +328,8 @@ struct Chest {
     container_of: HashMap<u32, usize>,
     container_by_path: HashMap<String, usize>,
     pending_container_props: Vec<PendingContainerProp>,
+    rewards: Vec<(u32, RewardActor)>,
+    reward_of: HashMap<u32, usize>,
     pawn_to_state: HashMap<u32, u32>,
     states: Vec<(u32, StateInfo)>,
     state_of: HashMap<u32, usize>,
@@ -342,6 +376,12 @@ impl Values {
     }
     fn len(&self, name: &str) -> Option<i64> {
         self.int(name)
+    }
+    fn strs(&self, name: &str) -> Option<(u32, &[(u32, String)])> {
+        match self.get(name) {
+            Some(Val::Strs(len, items)) => Some((*len, items)),
+            _ => None,
+        }
     }
 }
 
@@ -1736,6 +1776,12 @@ impl Decoder {
                     self.on_treasure_weapon(actor, path, v);
                 }
             }
+            Class::Reward => {
+                if let Some(actor) = actor {
+                    self.on_reward(actor, path, v);
+                    self.on_treasure_chest(actor, v);
+                }
+            }
             Class::Other => {}
         }
         Ok(())
@@ -1789,6 +1835,56 @@ impl Decoder {
             return exc("KeyNotFoundException: The given key was not present in the dictionary.");
         }
         Ok(())
+    }
+
+    fn on_reward(&mut self, actor: u32, path: &str, v: &Values) {
+        let (success, pawn, source) = (
+            v.bool("bSuccess"),
+            v.int("OpeningPawn").map(|p| p as u32).filter(|&p| p != 0),
+            v.int("SourceContainer")
+                .map(|p| p as u32)
+                .filter(|&p| p != 0),
+        );
+        let prizes = v.strs("PrizeTemplateId");
+        if success.is_none() && pawn.is_none() && source.is_none() && prizes.is_none() {
+            return;
+        }
+        let at = *self.chest.reward_of.entry(actor).or_insert_with(|| {
+            let cls = path.rsplit(['.', '/']).next().unwrap_or("").to_owned();
+            self.chest.rewards.push((
+                actor,
+                RewardActor {
+                    cls,
+                    success: false,
+                    pawn: None,
+                    source: None,
+                    t: None,
+                    prizes: BTreeMap::new(),
+                },
+            ));
+            self.chest.rewards.len() - 1
+        });
+        let t = self.frame_time;
+        let r = &mut self.chest.rewards[at].1;
+        if let Some(success) = success {
+            r.success = success;
+            if success {
+                r.t.get_or_insert(t);
+            }
+        }
+        // Cleanup updates clear these references again; the first real one is who rolled.
+        if pawn.is_some() {
+            r.pawn = r.pawn.or(pawn);
+        }
+        if source.is_some() {
+            r.source = r.source.or(source);
+        }
+        if let Some((len, items)) = prizes {
+            r.prizes.retain(|&index, _| index < len);
+            for (index, prize) in items {
+                r.prizes.insert(*index, prize.clone());
+            }
+        }
     }
 
     /// Stable identity for static map containers (odd NetGUIDs), which can receive a fresh NetGUID
@@ -2028,7 +2124,17 @@ impl Decoder {
         if let Some(success) = v.bool("bSuccess") {
             g.success = Some(success);
         }
-        if let Some(pid) = v.str("PrizeTemplateId").filter(|s| !s.is_empty()) {
+        let pid = v
+            .strs("PrizeTemplateId")
+            .and_then(|(_, items)| {
+                items
+                    .iter()
+                    .map(|(_, s)| s.trim())
+                    .find(|s| !s.is_empty())
+                    .map(str::to_owned)
+            })
+            .or_else(|| v.str("PrizeTemplateId").filter(|s| !s.is_empty()));
+        if let Some(pid) = pid {
             g.prize_id = Some(pid);
             if g.t.is_none() {
                 g.t = Some(self.frame_time);
@@ -2119,24 +2225,28 @@ impl Decoder {
                 .collect(),
             None => Vec::new(),
         };
+        // Who a pawn belongs to: you, your team, someone else, or nobody known.
+        let attribute = |pawn: Option<u32>| -> (&'static str, Option<String>) {
+            match pawn.and_then(|p| c.pawn_to_state.get(&p)) {
+                None => ("unknown", None),
+                Some(&s) if Some(s) == recorder => ("me", None),
+                Some(&s) => {
+                    let info = state(s);
+                    (
+                        if my_team.is_some() && info.team == my_team {
+                            "team"
+                        } else {
+                            "other"
+                        },
+                        info.epic,
+                    )
+                }
+            }
+        };
         let mut events = Vec::new();
         for (actor, container) in &c.containers {
             for (i, episode) in container.episodes.iter().enumerate() {
-                let (by, epic) = match episode.pawn.and_then(|p| c.pawn_to_state.get(&p)) {
-                    None => ("unknown", None),
-                    Some(&s) if Some(s) == recorder => ("me", None),
-                    Some(&s) => {
-                        let info = state(s);
-                        (
-                            if my_team.is_some() && info.team == my_team {
-                                "team"
-                            } else {
-                                "other"
-                            },
-                            info.epic,
-                        )
-                    }
-                };
+                let (by, epic) = attribute(episode.pawn);
                 events.push(Opening {
                     t: (episode.t as f64 * 100.0).round_ties_even() / 100.0,
                     cls: container.cls.clone(),
@@ -2418,6 +2528,37 @@ impl Decoder {
         }
         treasures.sort_by(|a, b| a.t.total_cmp(&b.t));
 
+        let mut rewards = Vec::new();
+        for (actor, reward) in c.rewards.iter().filter(|(_, r)| r.success) {
+            let (by, epic) = attribute(reward.pawn);
+            let chest = reward
+                .source
+                .and_then(|s| c.container_of.get(&s))
+                .map(|&at| c.containers[at].1.cls.clone());
+            for (&index, prize) in reward.prizes.iter().filter(|(_, p)| !p.trim().is_empty()) {
+                rewards.push(Reward {
+                    t: (reward.t.unwrap_or(0.0) as f64 * 100.0).round_ties_even() / 100.0,
+                    prize: prize.clone(),
+                    cls: reward.cls.clone(),
+                    by: by.to_owned(),
+                    player: if by == "team" {
+                        name_of(epic.as_deref())
+                    } else {
+                        None
+                    },
+                    player_id: match by {
+                        "me" => owner.as_ref().and_then(|o| o.epic_id.clone()),
+                        "team" => epic.clone(),
+                        _ => None,
+                    },
+                    pawn: reward.pawn,
+                    chest: chest.clone(),
+                    actor: *actor,
+                    index,
+                });
+            }
+        }
+        rewards.sort_by(|a, b| a.t.total_cmp(&b.t));
         let positive = |v: Option<u32>| v.filter(|&v| v > 0).map(i64::from);
         Replay {
             file: file.to_owned(),
@@ -2444,6 +2585,7 @@ impl Decoder {
             teammates,
             events,
             treasures,
+            rewards,
             error: outcome.err().map(|e| e.0),
         }
     }
@@ -2505,11 +2647,40 @@ fn read_kind(cmd: &mut BitReader<'_>, group: &Group, kind: &Kind) -> R<Option<Va
             Val::Other
         }
         Kind::Array(element) => return read_array(cmd, group, *element),
+        Kind::StrArray => return read_str_array(cmd, group),
     }))
 }
 
 /// NetFieldParser.ReadArrayField for arrays of primitive elements; the value kept is the length.
 fn read_array(cmd: &mut BitReader<'_>, group: &Group, element: Option<&Kind>) -> R<Option<Val>> {
+    read_array_into(cmd, group, element, None)
+}
+
+/// An array of strings: its declared length and the elements this update carried.
+fn read_str_array(cmd: &mut BitReader<'_>, group: &Group) -> R<Option<Val>> {
+    let mut items = Vec::new();
+    let len = read_array_into(cmd, group, Some(&Kind::Str), Some(&mut items))?;
+    let Some(Val::Int(len)) = len else {
+        return Ok(None);
+    };
+    Ok(Some(Val::Strs(
+        len as u32,
+        items
+            .into_iter()
+            .filter_map(|(index, value)| match value {
+                Val::Str(text) => Some((index, text)),
+                _ => None,
+            })
+            .collect(),
+    )))
+}
+
+fn read_array_into(
+    cmd: &mut BitReader<'_>,
+    group: &Group,
+    element: Option<&Kind>,
+    mut sink: Option<&mut Vec<(u32, Val)>>,
+) -> R<Option<Val>> {
     let count = cmd.read_int_packed()?;
     let Some(element) = element else {
         return Ok(None);
@@ -2549,7 +2720,9 @@ fn read_array(cmd: &mut BitReader<'_>, group: &Group, element: Option<&Kind>) ->
             cmd.set_temp_end(bits, END_ARRAY);
             let result = read_kind(cmd, group, element);
             cmd.restore_temp_end(END_ARRAY);
-            result?;
+            if let (Some(items), Some(value)) = (sink.as_deref_mut(), result?) {
+                items.push((index - 1, value));
+            }
         }
     }
 }

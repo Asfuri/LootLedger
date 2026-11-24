@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <img src=".github/readme/tour.gif" width="900" alt="A tour of LootLedger: Overview, Matches, Openings, Statistics, Teammates and Settings">
+  <img src=".github/readme/tour.gif" width="900" alt="A tour of LootLedger: Overview, Matches, Sessions, Openings, Statistics, Teammates and Settings">
 </p>
 
 <sub>All screenshots use made-up demo data.</sub>
@@ -42,6 +42,30 @@ The first card on the Overview page follows the session you are playing right no
 - The dot at the top shows what the game is doing: waiting, live, reading the replay or match counted.
 
 Chest types, placements and teammates for every match are on the Statistics, Matches and Teammates pages.
+
+### Every session
+
+The Sessions tab lists all your play sessions, newest first. Pick a date range, sort by any column, and select a session to see what happened in it.
+
+<img src=".github/readme/sessions.png" width="700" alt="The Sessions page: a summary, a table of every session and the details of the selected one">
+
+- **Summary:** your average session, your longest session and the one with the most chests.
+- **The list:** start time, length, matches, chests, chests per match and per hour, best match and best placement.
+- **Details:** chest types, a chart of chests per match, wins and eliminations, your top teammates and every match in the session. Double-click a match to open it.
+
+### Rewards from treasure rolls
+
+During the Treasure Hunt event, opening a chest can roll a prize. LootLedger reads the prizes your replays recorded and counts them by type: Gold outfit, Pickaxe, Back bling, Jam track, Loading screen, Gold car decal, Gizmo and Pirate shop.
+
+<p>
+  <img src=".github/readme/rewards-card.png" width="360" alt="The Rewards card on the Overview page">
+  <img src=".github/readme/rewards-types.png" width="360" alt="The Rewards by type card on the Statistics page">
+</p>
+
+- **Overview:** a Rewards card with your total, your top three types and how many your teammates got.
+- **Statistics:** your count and your teammates' count for every type.
+- **Details:** each match and session lists its prizes, who got them and when. Settings has **Export rewards** (CSV or JSON).
+- **Counts are minimums.** A prize only appears when the game recorded its animation in your replay, so prizes won far from you usually don't, and Gizmos may be missing. A prize the app has no name for is counted apart and never guessed into a type.
 
 ### A dashboard you can arrange
 
@@ -86,7 +110,7 @@ Save or copy a summary card or a weekly recap image, ready to post.
 - **Pop-out counter:** a small always-on-top window with your live chest count, for a second screen.
 - **Corrections:** remove, restore or fix any entry, add a manual +1, and undo. Every change is kept in an audit trail, and re-reading replays never overwrites your edits.
 - **Export** to JSON or CSV, **backups** and **restore**. **Clear all data** saves a backup first.
-- **Global shortcuts**, a command palette (**Ctrl+K**) and keyboard navigation (**Ctrl+1** to **Ctrl+6**; **?** or **F1** lists all shortcuts).
+- **Global shortcuts**, a command palette (**Ctrl+K**) and keyboard navigation (**Ctrl+1** to **Ctrl+7**; **?** or **F1** lists all shortcuts).
 - **Automatic updates:** new versions download from this project's GitHub releases. Each download is checked against GitHub's published SHA-256 and installed when you close the app. You can turn this off in **Settings → About**.
 
 ## How it counts
@@ -139,12 +163,14 @@ Pushing a `v*` tag runs `.github/workflows/release.yml`. It checks formatting, l
   - `ui/*.slint`: the interface, with all colours and sizes in `tokens.slint`.
   - `main.rs`: wiring.
   - `cards.rs`: dashboard cards, including the session overview.
-  - `pages.rs`: list pages.
+  - `pages.rs`: the Matches, Sessions, Openings and Teammates pages.
   - `live.rs`: live match tracking and replay import.
   - `update.rs`: updates.
   - `native.rs`: Win32 window, taskbar icon and hotkeys.
 - `scripts/` holds two helpers:
   - `subset_icons.py`: rebuilds the icon font.
   - `check_pe_runtime.py`: the runtime-DLL check used in CI.
+
+The prize format was worked out with the help of the documentation and source of [FortniteChestTracker](https://github.com/Loukious/FortniteChestTracker), which was suggested in [issue #1](https://github.com/femboypuppy/LootLedger/issues/1). No code was copied from it.
 
 [Made with Slint](https://slint.dev). Licences are in [THIRD_PARTY.md](THIRD_PARTY.md); test notes are in [VALIDATION.md](VALIDATION.md). Fortnite is a trademark of Epic Games; LootLedger is not affiliated with or endorsed by Epic.

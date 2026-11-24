@@ -1,14 +1,17 @@
 Download **LootLedger.exe** and run it. No install needed. If you have 0.8.1 or later, LootLedger updates itself: it installs this version the next time you close it.
 
-## What's new in 0.8.7
+## What's new in 0.8.9
 
-- **A simpler Session overview card.** The card added in 0.8.6 had too many lines. It now shows:
-  - the chests you opened this session, with the "+N" pop-up after each match;
-  - four numbers in one row: matches, time in the session, chests per match and chests per hour;
-  - your best match of the session, and a small chart of chests per match.
-- Chest types, placements, eliminations and teammates are no longer on the card. They are on the Statistics, Matches and Teammates pages.
-- A session is still a run of matches less than 30 minutes apart. When you are not playing, the card shows your last session and when it ended.
-- The README is updated with new pictures of the card.
+- **Rewards.** During the Treasure Hunt event, opening a chest can roll a prize. LootLedger now reads the prizes your replays recorded and counts them by type: Gold outfit, Pickaxe, Back bling, Jam track, Loading screen, Gold car decal, Gizmo and Pirate shop. Requested in #1.
+  - **Overview:** a new **Rewards** card (added to your dashboard once; remove it if you don't want it) with your total, your top three types and how many your teammates got.
+  - **Statistics:** a new **Rewards by type** card with your count and your teammates' count for every type.
+  - **Details:** a match lists each prize with who got it, when, and which kind of chest it came from. A session lists the prizes from all its matches, and the Session overview card shows a "rewards" number once you have one.
+  - **Export:** **Settings → Ledger and settings → Export rewards** saves every recorded prize as CSV or JSON. The full ledger export also carries them.
+- **First start after updating:** LootLedger reads your saved replays once more to look for prizes, so the first launch takes a minute or two. Matches whose replay Fortnite has already deleted stay without reward data.
+
+### What the rewards numbers mean
+
+These are **minimums**. A prize shows up only when the game recorded its animation in your replay. Prizes won by players far from you usually aren't recorded, and Gizmos may not be saved at all. A prize this version has no name for is counted apart as "not recognized", never guessed into a type.
 
 ## About counting chests during a match
 
@@ -23,4 +26,4 @@ The exe is unsigned, so Windows SmartScreen may warn the first time (More info �
 
 ## Not yet verified
 
-The session card was checked in screenshots with a real and a made-up ledger, in the dark and light theme, but not yet during a live match. Also not yet verified: the match pop-up and the pop-out counter over Fortnite, global shortcuts, dragging dashboard cards, Windows Snap on several monitors and display scaling above 100%. See [VALIDATION.md](https://github.com/femboypuppy/LootLedger/blob/main/VALIDATION.md).
+The Sessions page was checked in screenshots from a made-up ledger, in the dark and light theme. The Session overview card has not yet been seen during a live match. Also not yet verified: the match pop-up and the pop-out counter over Fortnite, global shortcuts, dragging dashboard cards, Windows Snap on several monitors and display scaling above 100%. See [VALIDATION.md](https://github.com/femboypuppy/LootLedger/blob/main/VALIDATION.md).

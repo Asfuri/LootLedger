@@ -48,10 +48,30 @@ impl Lang {
         match index {
             0 => self.t("Overview", "Visão geral"),
             1 => self.t("Matches", "Partidas"),
-            2 => self.t("Openings", "Aberturas"),
-            3 => self.t("Statistics", "Estatísticas"),
-            4 => self.t("Teammates", "Equipe"),
+            2 => self.t("Sessions", "Sessões"),
+            3 => self.t("Openings", "Aberturas"),
+            4 => self.t("Statistics", "Estatísticas"),
+            5 => self.t("Teammates", "Equipe"),
             _ => self.t("Settings", "Configurações"),
+        }
+    }
+
+    pub fn reward_category(self, cat: &str) -> String {
+        match cat {
+            "Gold outfit" => self.t("Gold outfit", "Traje dourado").to_owned(),
+            "Pickaxe" => self.t("Pickaxe", "Picareta").to_owned(),
+            "Back bling" => self.t("Back bling", "Acessório para as costas").to_owned(),
+            "Jam track" => self.t("Jam track", "Música").to_owned(),
+            "Loading screen" => self.t("Loading screen", "Tela de carregamento").to_owned(),
+            "Gold car decal" => self
+                .t("Gold car decal", "Adesivo dourado de carro")
+                .to_owned(),
+            "Gizmo" => "Gizmo".to_owned(),
+            "Pirate shop" => self.t("Pirate shop", "Loja Pirata").to_owned(),
+            "Unrecognized reward" => self
+                .t("Unrecognized reward", "Recompensa não reconhecida")
+                .to_owned(),
+            other => other.to_owned(),
         }
     }
 
@@ -98,6 +118,8 @@ impl Lang {
             "stats" => self.t("Match stats", "Estatísticas de partida"),
             "treasures" => self.t("Treasure rewards", "Recompensas de tesouro"),
             "seen_prizes" => self.t("Seen prizes nearby", "Prêmios vistos por perto"),
+            "rewards" => self.t("Rewards", "Recompensas"),
+            "reward_types" => self.t("Rewards by type", "Recompensas por tipo"),
             _ => "",
         }
     }
@@ -539,15 +561,23 @@ pub fn apply(ui: &AppWindow, lang: Lang) {
 
     g.set_nav_overview(lang.page_name(0).into());
     g.set_nav_matches(lang.page_name(1).into());
-    g.set_nav_openings(lang.page_name(2).into());
-    g.set_nav_statistics(lang.page_name(3).into());
-    g.set_nav_teammates(lang.page_name(4).into());
-    g.set_nav_settings(lang.page_name(5).into());
+    g.set_nav_sessions(lang.page_name(2).into());
+    g.set_nav_openings(lang.page_name(3).into());
+    g.set_nav_statistics(lang.page_name(4).into());
+    g.set_nav_teammates(lang.page_name(5).into());
+    g.set_nav_settings(lang.page_name(6).into());
 
     g.set_sub_matches(
         lang.t(
             "Matches read from your replays. Select one to see its breakdown and timeline.",
             "Partidas lidas dos seus replays. Selecione uma para ver o resumo e a linha do tempo.",
+        )
+        .into(),
+    );
+    g.set_sub_sessions(
+        lang.t(
+            "Every play session: a run of matches less than 30 minutes apart. Select one to see its matches.",
+            "Todas as sessões de jogo: sequências de partidas com menos de 30 minutos de intervalo. Selecione uma para ver suas partidas.",
         )
         .into(),
     );
@@ -1417,6 +1447,59 @@ fn apply_settings_strings(g: &I18n, lang: Lang) {
             label: lang.t("Open data folder", "Abrir pasta de dados").into(),
         },
     ]));
+    g.set_sessions_empty(
+        lang.t(
+            "No sessions yet. A session is a run of matches less than 30 minutes apart. Play a few matches and it appears here.",
+            "Nenhuma sessão ainda. Uma sessão é uma sequência de partidas com menos de 30 minutos de intervalo. Jogue algumas partidas e ela aparecerá aqui.",
+        )
+        .into(),
+    );
+    g.set_session_records_titles(model(vec![
+        lang.t("Average session", "Sessão média").into(),
+        lang.t("Longest session", "Sessão mais longa").into(),
+        lang.t("Most chests in a session", "Mais baús em uma sessão")
+            .into(),
+    ]));
+    g.set_label_sessions(lang.t("Sessions", "Sessões").into());
+    g.set_session_headers(model(vec![
+        lang.t("Started", "Início").into(),
+        lang.t("Length", "Duração").into(),
+        lang.t("Matches", "Partidas").into(),
+        lang.t("Chests", "Baús").into(),
+        lang.t("Per match", "Por partida").into(),
+        lang.t("Per hour", "Por hora").into(),
+        lang.t("Best match", "Melhor partida").into(),
+        lang.t("Best place", "Melhor lugar").into(),
+    ]));
+    g.set_tip_close_session(
+        lang.t("Close session details", "Fechar detalhes da sessão")
+            .into(),
+    );
+    g.set_session_chart_empty(
+        lang.t(
+            "Matches will chart here",
+            "O gráfico das partidas aparecerá aqui",
+        )
+        .into(),
+    );
+    g.set_session_matches_title(
+        lang.t(
+            "Matches in this session (double-click one to open it)",
+            "Partidas nesta sessão (clique duas vezes em uma para abrir)",
+        )
+        .into(),
+    );
+    g.set_session_matches_label(
+        lang.t("Matches in this session", "Partidas nesta sessão")
+            .into(),
+    );
+    g.set_session_match_headers(model(vec![
+        lang.t("When", "Quando").into(),
+        lang.t("Mode", "Modo").into(),
+        lang.t("Place", "Lugar").into(),
+        lang.t("Chests", "Baús").into(),
+        lang.t("Length", "Duração").into(),
+    ]));
     g.set_data_col3(model(vec![
         MenuOption {
             id: "Export settings".into(),
@@ -1427,6 +1510,10 @@ fn apply_settings_strings(g: &I18n, lang: Lang) {
             label: lang.t("Import settings", "Importar configs").into(),
         },
     ]));
+    g.set_data_col4(model(vec![MenuOption {
+        id: "Export rewards".into(),
+        label: lang.t("Export rewards", "Exportar recompensas").into(),
+    }]));
     g.set_set_check_updates(lang.t("Check for updates", "Verificar atualizações").into());
     g.set_set_clear_data(lang.t("Clear all data…", "Limpar todos os dados…").into());
     g.set_set_clear_data_note(

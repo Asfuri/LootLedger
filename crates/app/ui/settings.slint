@@ -496,7 +496,7 @@ export component SettingsPage inherits VerticalLayout {
             hint: I18n.set-data-hint-prefix + Settings.data-folder + I18n.set-data-hint-suffix;
             VerticalLayout {
                 spacing: Tokens.s;
-                for col in [I18n.data-col1, I18n.data-col2, I18n.data-col3]: HorizontalLayout {
+                for col in [I18n.data-col1, I18n.data-col2, I18n.data-col3, I18n.data-col4]: HorizontalLayout {
                     spacing: Tokens.s;
                     for item in col: Button { min-width: 180px; text: item.label; clicked => { Settings.action(item.id); } }
                 }
